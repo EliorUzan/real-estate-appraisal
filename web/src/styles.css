@@ -1,4 +1,31 @@
 :root { color: #17202a; background: #f4f7f8; font-family: Arial, "Noto Sans Hebrew", sans-serif; font-synthesis: none; }
+button { border: 1px solid #0f6b5b; background: #0f6b5b; color: white; padding: 10px 16px; border-radius: 7px; }
+button:disabled { opacity: .6; cursor: not-allowed; }
+.gear { display: grid; place-items: center; padding: 10px; border: 0; background: transparent; color: #123b4a; flex-shrink: 0; }
+.account { font-size: .8rem; display:flex; align-items:center; }
+.providers { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; margin-top: 24px; }
+.provider-card { padding: 20px; border:1px solid #d7e0e2; border-radius:10px; }
+.provider-card h2 { display:flex; align-items:center; gap:10px; font-size:1.1rem; margin-top:0; }
+.provider-icon { width:28px; height:28px; object-fit:contain; flex-shrink:0; }
+.monogram { display:inline-grid; place-items:center; border-radius:7px; background:#ddd2ff; color:#382577; font-weight:bold; }
+.anthropic { color:#b25735; background:#f9e7dd; }
+.moonshot { background:#202a34; color:#fff; }
+.provider-choice { display:flex; align-items:center; gap:10px; }
+.advanced { margin-top:28px; border-top:1px solid #d7e0e2; padding-top:20px; }
+summary { cursor:pointer; font-weight:bold; padding:12px 0; }
+.actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.secondary { color:#125244; background:#eff8f5; }
+.prompt-editor textarea { font-family:Consolas,monospace; line-height:1.7; }
+.prompt-editor textarea:read-only { background:#f6f8fa; }
+.request-fields { display:grid; gap:18px; border:0; padding:0; margin:0; min-width:0; }
+.checkbox { display:flex; align-items:flex-start; gap:10px; font-weight:normal; }
+.checkbox input { width:18px; height:18px; flex-shrink:0; }
+.text-button { background:transparent; color:#12634f; padding:0; text-decoration:underline; border:0; }
+.report { margin-top:24px; padding-top:20px; border-top:1px solid #d7e0e2; }
+.report textarea { line-height:1.8; }
+.history-item { border-bottom:1px solid #d7e0e2; padding:12px 0; }
+.muted, small { color:#5b6e75; font-size:.85rem; font-weight:normal; line-height:1.5; }
+@media (max-width:680px) { .providers { grid-template-columns:1fr; } .account bdi { display:none; } }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
 button, input, select, textarea { font: inherit; }
