@@ -8,12 +8,18 @@ the selected address in its URL fragment, so editing the input cannot move an
 existing map until the user explicitly opens the new address. Each frame owns
 its GovMap SDK instance and is removed with its page or history item.
 
-The frame loads the official remote SDK, waits for `createMap.onLoad`, geocodes
-the address, focuses it with a marker, then queries `PARCEL_ALL` at that same ITM
+The frame loads the official remote SDK and awaits its `createMap` promise
+(iframe connection and token authentication). The map stays rendered while
+loading; the SDK's render-dependent `onLoad` callback does not gate lookup.
+It geocodes the address, focuses it with a marker, then queries `PARCEL_ALL` at that same ITM
 point with `intersectFeatures` and fields `GUSH_NUM`, `PARCEL`. Both
 `SUB_GUSH_ALL` and `PARCEL_ALL` are in `layers` **and** `visibleLayers`.
-All distinct intersecting parcels are displayed. Partial address matches are
-labelled approximate and do not display parcel identifiers. Ambiguous or missing
+All distinct intersecting parcels are displayed. `FullResult` preserves address
+candidates: the current SDK's `AccuracyOnly` returns only its first suggestion.
+Current results use `ResultType`, address components, and `ResultLable`, not the
+legacy `ResultCode` accuracy field. Only a unique complete address matching the
+entered address is treated as exact. A single unmatched or incomplete result is
+labelled approximate and does not display parcel identifiers. Ambiguous or missing
 addresses never silently select the first result. SDK, map, and lookup waits
 have timeouts; failures do not affect AI generation, the report, or its
 copy/download actions.

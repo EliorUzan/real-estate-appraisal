@@ -46,7 +46,7 @@ async function initialize() {
     document.querySelector("#govmap iframe")?.setAttribute("title", `מפת GovMap — ${address}`);
     status.textContent = "מאתר את הכתובת…";
     stage = "address";
-    const point = parseLocation(await withTimeout(api.geocode({ keyword: address, type: api.geocodeType.AccuracyOnly })));
+    const point = parseLocation(await withTimeout(api.geocode({ keyword: address, type: api.geocodeType.FullResult })), address);
     if (!point) {
       fail("לא נמצאה כתובת חד־משמעית. יש לדייק את היישוב, הרחוב ומספר הבית בבקשה.");
       return;
@@ -56,7 +56,7 @@ async function initialize() {
     shell.setAttribute("aria-busy", "false");
     if (point.approximate) {
       parcelElement.textContent = "לא זמין — הכתובת לא אותרה במדויק";
-      status.textContent = "נמצאה התאמה חלקית בלבד. המפה מציגה את האזור המשוער; יש לדייק את הכתובת כדי לקבל גוש וחלקה.";
+      status.textContent = `נמצאה התאמה חלקית בלבד${point.label ? `: ${point.label}` : ""}. המפה מציגה את האזור המשוער; יש לדייק את הכתובת כדי לקבל גוש וחלקה.`;
       return;
     }
     status.textContent = "מאתר גוש וחלקה…";

@@ -24,6 +24,25 @@ test("partial address matches are explicitly marked approximate", () => {
   assert.deepEqual(parseLocation({ ResultCode: 2, X: 180645, Y: 667120 }), { x: 180645, y: 667120, approximate: true });
 });
 
+test("current SDK results select the unique complete requested address, not the first suggestion", () => {
+  const exact = { ResultType: 1, ResultLable: "התחייה 2, חדרה", streetName: "התחייה",
+    houseNumber: 2, settlementName: "חדרה", X: 192000, Y: 705000 };
+  const other = { ...exact, ResultLable: "התחייה 20, חדרה", houseNumber: 20, X: 192010 };
+  assert.deepEqual(parseLocation({ status: 0, errorCode: 0, data: [other, exact] }, "חדרה, התחייה 2"),
+    { x: exact.X, y: exact.Y, approximate: false, label: exact.ResultLable });
+  assert.equal(parseLocation({ data: [other, exact] }, "התחייה, חדרה"), null);
+  assert.equal(parseLocation({ data: [exact, { ...exact, X: 192001 }] }, exact.ResultLable), null);
+});
+
+test("current SDK ResultType does not establish accuracy for incomplete or mismatched addresses", () => {
+  const street = { ResultType: 1, ResultLable: "התחייה, חדרה", streetName: "התחייה",
+    settlementName: "חדרה", X: 192000, Y: 705000 };
+  assert.equal(parseLocation({ data: [street] }, street.ResultLable)?.approximate, true);
+  assert.equal(parseLocation({ data: [{ ...street, houseNumber: 2 }] }, "התחייה 99, חדרה")?.approximate, true);
+  assert.equal(parseLocation({ status: 1, errorCode: 0, data: null }, "כתובת חסרה"), null);
+  assert.deepEqual(parseParcels({ status: 1, errorCode: 0, data: null }), []);
+});
+
 test("retains all intersecting parcels, deduplicates, and handles empty results", () => {
   assert.deepEqual(parseParcels({ status: 0, errorCode: 0, data: [
     { ObjectId: 1, Values: [7103, 90] }, { ObjectId: 2, Values: [7103, 92] }, { ObjectId: 3, Values: ["7103", "90"] },

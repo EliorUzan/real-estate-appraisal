@@ -1,7 +1,7 @@
 export const CADASTRAL_LAYERS = ["SUB_GUSH_ALL", "PARCEL_ALL"];
 export const GOVMAP_SDK_URL = "https://www.govmap.gov.il/govmap/api/govmap.api.js";
 
-export type Point = { x: number; y: number; approximate: boolean };
+export type Point = { x: number; y: number; approximate: boolean; label?: string };
 export type Parcel = { block: string; parcel: string };
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue =>
@@ -9,6 +9,8 @@ const record = (value: unknown): RecordValue =>
 
 function payload(response: unknown): unknown {
   const envelope = record(response);
+  // The current SDK uses status 1 with no data for an empty search/intersection.
+  if (envelope.status === 1 && envelope.errorCode === 0 && envelope.data === null) return [];
   if ((envelope.errorCode != null && Number(envelope.errorCode) !== 0) ||
       (envelope.status != null && Number(envelope.status) !== 0)) {
     throw new Error("GovMap request failed");
@@ -16,17 +18,37 @@ function payload(response: unknown): unknown {
   return envelope.data ?? response;
 }
 
-export function parseLocation(response: unknown): Point | null {
+function normalizeAddress(value: unknown): string {
+  return typeof value === "string" ? value.normalize("NFKC")
+    .replace(/[\u0591-\u05c7]/g, "").toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(/\s+/).sort().join(" ") : "";
+}
+
+export function parseLocation(response: unknown, requestedAddress = ""): Point | null {
   const data = payload(response);
   const rows = Array.isArray(data) ? data : [data];
-  if (rows.length !== 1) return null;
-  const item = record(rows[0]);
+  const requested = normalizeAddress(requestedAddress);
+  // ResultType in the current SDK is a result category, NOT an accuracy code.
+  // Request FullResult and select only a unique complete address matching the
+  // user's input; AccuracyOnly currently discards all but the first candidate.
+  const isExactAddress = (item: RecordValue) => item.ResultType === 1 &&
+    typeof item.streetName === "string" && item.streetName.trim() !== "" &&
+    typeof item.settlementName === "string" && item.settlementName.trim() !== "" &&
+    /[1-9]/.test(String(item.houseNumber ?? "")) && requested !== "" &&
+    [item.ResultLable, `${item.streetName} ${item.houseNumber} ${item.entryLetter ?? ""} ${item.settlementName}`]
+      .some(label => normalizeAddress(label) === requested);
+  const exact = rows.map(record).filter(isExactAddress);
+  if (exact.length > 1 || (exact.length === 0 && rows.length !== 1)) return null;
+  const item = exact[0] ?? record(rows[0]);
   const code = Number(item.ResultCode ?? record(response).ResultCode);
   // Never silently focus the first candidate of an ambiguous address.
-  if (code !== 1 && code !== 2) return null;
+  const currentFormat = item.ResultCode == null && record(response).ResultCode == null &&
+    item.ResultType === 1 && typeof item.ResultLable === "string";
+  if (!currentFormat && code !== 1 && code !== 2) return null;
   if (typeof item.X !== "number" || typeof item.Y !== "number" ||
       !Number.isFinite(item.X) || !Number.isFinite(item.Y) || item.X <= 0 || item.Y <= 0) return null;
-  return { x: item.X, y: item.Y, approximate: code === 2 };
+  return { x: item.X, y: item.Y, approximate: currentFormat ? exact.length !== 1 : code === 2,
+    ...(currentFormat ? { label: item.ResultLable as string } : {}) };
 }
 
 export function parseParcels(response: unknown): Parcel[] {
@@ -56,7 +78,7 @@ export async function withTimeout<T>(operation: PromiseLike<T>, milliseconds = 2
 }
 
 export interface GovMapApi {
-  geocodeType: { AccuracyOnly: number };
+  geocodeType: { FullResult: number; AccuracyOnly: number };
   createMap(id: string, settings: Record<string, unknown>): PromiseLike<void>;
   geocode(params: { keyword: string; type: number }): PromiseLike<unknown>;
   intersectFeatures(params: { geometry: string; layerName: string; fields: string[] }): PromiseLike<unknown>;
