@@ -105,17 +105,17 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
   const [address,setAddress]=useState(""),[example,setExample]=useState(""),[additional,setAdditional]=useState(""),[section,setSection]=useState("environment_description"),[workspace,setWorkspace]=useState(data.members[0].workspace_id);
   const [exampleFiles,setExampleFiles]=useState<File[]>([]),[additionalFiles,setAdditionalFiles]=useState<File[]>([]),[consent,setConsent]=useState(true),[search,setSearch]=useState(false);
   const [busy,setBusy]=useState(false),[output,setOutput]=useState(""),[error,setError]=useState(""),[notice,setNotice]=useState("");
-  const [reportAddress,setReportAddress]=useState("");
+  const [mapAddress,setMapAddress]=useState("");
   const searchAvailable=["openai","gemini","anthropic"].includes(provider)||(provider==="groq"&&["openai/gpt-oss-20b","openai/gpt-oss-120b"].includes(model));
   const pdfAvailable=["openai","gemini","anthropic"].includes(provider);
   const configured=data.settings.find(s=>s.provider_id===provider)?.configured;
-  async function generate(e:FormEvent){e.preventDefault();setBusy(true);setError("");setNotice("");setOutput("");try{
+  async function generate(e:FormEvent){e.preventDefault();setMapAddress(address.trim());setBusy(true);setError("");setNotice("");setOutput("");try{
     const all=[...exampleFiles,...additionalFiles];if(all.length>5||all.reduce((n,f)=>n+f.size,0)>10*1024*1024)throw new Error("מותר לצרף עד 5 קבצים ובסך הכול עד 10 MB.");
     if(!pdfAvailable&&all.some(f=>/\.pdf$/i.test(f.name)))throw new Error("הספק שנבחר תומך בקובצי TXT, MD ו-CSV בלבד. יש להסיר קובצי PDF או לבחור ספק אחר.");
     const files=await Promise.all([...exampleFiles.map(f=>encodeFile(f,"example")),...additionalFiles.map(f=>encodeFile(f,"additional"))]);
     const result=await api<{job:Job}>("generate",{requestId:crypto.randomUUID(),workspace,section,address,example,additional,provider,model,consent,search:search&&searchAvailable,files});
     if(result.job.status!=="succeeded")throw new Error("הבקשה בטיפול. בדקו את ההיסטוריה.");
-    setOutput(result.job.output_text??"");setReportAddress(result.job.address);setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");
+    setOutput(result.job.output_text??"");setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");
   }catch(e){setError(message(e));}finally{setBusy(false);}}
   return <><div className="title-row"><div><p className="eyebrow">כתיבה שמאית בעזרת AI</p><h1>בקשה חדשה</h1></div><span className="shared-badge">היסטוריה משותפת לצוות</span></div>
     <form onSubmit={generate}><fieldset disabled={busy} className="request-fields">
@@ -131,19 +131,19 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
       <small>עד 5 קבצים, 10 MB בסך הכול. PDF נתמך ב-ChatGPT, Gemini ו-Claude. הקבצים נשלחים לעיבוד בזיכרון ואינם נשמרים באחסון.</small>
       <label className="checkbox"><input type="checkbox" checked={search&&searchAvailable} disabled={!searchAvailable} onChange={e=>setSearch(e.target.checked)}/>חיפוש מידע עדכני באינטרנט (במודלים תומכים; עשוי להוסיף עלות)</label>
       <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את התוכן והקבצים לספק שנבחר ולשמור את הטיוטה בהיסטוריית הצוות.</label>
-    </fieldset><button disabled={busy||!configured||!model.trim()}>{busy?"יוצר טיוטה… נא להמתין":"צור"}</button></form>
+    </fieldset><div className="actions"><button disabled={busy||!configured||!model.trim()}>{busy?"יוצר טיוטה… נא להמתין":"צור"}</button><button type="button" className="secondary" disabled={!address.trim()} onClick={()=>setMapAddress(address.trim())}>הצג מפה לכתובת</button></div></form>
     {busy&&<p role="status">הבקשה נשלחה לעיבוד. אין לסגור את החלון עד לקבלת תשובה.</p>}{error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status" className="success">{notice}</p>}
-    {output&&<Report text={output} address={reportAddress}/>}</>;
+    {output&&<Report text={output}/>}{mapAddress&&<GovMapPanel address={mapAddress}/>}</>;
 }
-function Report({text,address}:{text:string;address:string}){
+function Report({text}:{text:string}){
   const [copied,setCopied]=useState(false),[error,setError]=useState("");
-  return <section className="report"><h2>טיוטה לבדיקה</h2><p className="muted">יש לבדוק את העובדות והניסוח לפני שילוב בשומה.</p><textarea aria-label="טיוטת הדוח" value={text} readOnly rows={15}/><div className="actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(text);setCopied(true);}catch{setError("לא ניתן להעתיק אוטומטית. סמנו את הטקסט והעתיקו.");}}}>{copied?"הועתק":"העתקה"}</button><button className="secondary" onClick={()=>{const url=URL.createObjectURL(new Blob(["\ufeff"+text],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="appraisal-draft.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}>הורדת טקסט</button></div>{error&&<p role="alert">{error}</p>}<GovMapPanel address={address}/></section>;
+  return <section className="report"><h2>טיוטה לבדיקה</h2><p className="muted">יש לבדוק את העובדות והניסוח לפני שילוב בשומה.</p><textarea aria-label="טיוטת הדוח" value={text} readOnly rows={15}/><div className="actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(text);setCopied(true);}catch{setError("לא ניתן להעתיק אוטומטית. סמנו את הטקסט והעתיקו.");}}}>{copied?"הועתק":"העתקה"}</button><button className="secondary" onClick={()=>{const url=URL.createObjectURL(new Blob(["\ufeff"+text],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="appraisal-draft.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}>הורדת טקסט</button></div>{error&&<p role="alert">{error}</p>}</section>;
 }
 function HistoryItem({job}:{job:Job}){
   const [open,setOpen]=useState(false);
   return <details className="history-item" onToggle={event=>setOpen(event.currentTarget.open)}>
     <summary>{job.address} · {new Date(job.created_at).toLocaleString("he-IL")} · {({succeeded:"הושלם",running:"בטיפול",failed:"נכשל",needs_review:"דרושה בדיקה"} as Record<string,string>)[job.status]??job.status}</summary>
-    {open&&<><p><bdi>{job.provider_id} / {job.model_id}</bdi></p>{job.output_text?<Report text={job.output_text} address={job.address}/>:<p>{job.status==="running"?"הבקשה עדיין מסומנת בטיפול. אם חלפו כמה דקות, אין להפעיל שוב לפני בדיקת חיוב הספק.":job.error_code??"לא נשמרה טיוטה."}</p>}</>}
+    {open&&<><p><bdi>{job.provider_id} / {job.model_id}</bdi></p>{job.output_text?<Report text={job.output_text}/>:<p>{job.status==="running"?"הבקשה עדיין מסומנת בטיפול. אם חלפו כמה דקות, אין להפעיל שוב לפני בדיקת חיוב הספק.":job.error_code??"לא נשמרה טיוטה."}</p>}<GovMapPanel address={job.address}/></>}
   </details>;
 }
 function History(){

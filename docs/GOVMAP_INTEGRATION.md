@@ -1,9 +1,12 @@
-# GovMap in web reports
+# GovMap in the web app
 
-Every generated report and opened history report embeds `/govmap.html` below the
-AI response. The frame receives the report's saved address in its URL fragment,
-so changing the new-request input cannot move an existing report's map. Each
-frame owns its GovMap SDK instance and is removed with the report.
+The new-request form can open GovMap directly from the entered address, without
+an AI provider or generated draft. Submitting a draft request also opens the
+map immediately, even if generation later fails. Every opened history item
+shows a map for its saved address, including failed jobs. The frame receives
+the selected address in its URL fragment, so editing the input cannot move an
+existing map until the user explicitly opens the new address. Each frame owns
+its GovMap SDK instance and is removed with its page or history item.
 
 The frame loads the official remote SDK, waits for `createMap.onLoad`, geocodes
 the address, focuses it with a marker, then queries `PARCEL_ALL` at that same ITM
@@ -12,7 +15,8 @@ point with `intersectFeatures` and fields `GUSH_NUM`, `PARCEL`. Both
 All distinct intersecting parcels are displayed. Partial address matches are
 labelled approximate and do not display parcel identifiers. Ambiguous or missing
 addresses never silently select the first result. SDK, map, and lookup waits
-have timeouts; failures do not affect the report or its copy/download actions.
+have timeouts; failures do not affect AI generation, the report, or its
+copy/download actions.
 
 ## Configuration and deployment
 
@@ -32,11 +36,13 @@ Run `npm run build` and `npm run lint` inside `web`. From the repository root,
 run `node --experimental-strip-types --test tests/web_govmap.test.mjs` with Node
 22.6+ (Node 24 supports type stripping by default).
 
-On an approved domain, generate a report with a full address, check the address
-marker and both cadastral layers, and compare every displayed block/parcel with
-GovMap. Edit the next address without generating: the old report must retain its
-original map. Open multiple history reports and verify their independent maps.
-Also check an ambiguous address and temporary GovMap failure/retry.
+On an approved domain, open a map with a full address without invoking AI, check
+the address marker and both cadastral layers, and compare every displayed
+block/parcel with GovMap. Edit the address without reopening the map: the map
+must retain its original location. Generate a draft with an AI provider failure:
+the map must still load. Open successful and failed history jobs and verify
+their independent maps. Also check an ambiguous address and temporary GovMap
+failure/retry while confirming the AI draft remains usable.
 
 ## Official references
 
@@ -58,4 +64,5 @@ take precedence over its illustrative payloads and option names.
 - Live GovMap initialization timed out on `127.0.0.1:5175`. The exact external
   cause was not established; successful geocoding, parcel retrieval, and visual
   layer rendering still need verification on an approved domain.
-- These changes have not been deployed.
+- The GovMap integration was subsequently deployed. Live GovMap functionality
+  still requires verification on an approved domain.
