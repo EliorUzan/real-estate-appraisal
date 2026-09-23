@@ -66,12 +66,13 @@ take precedence over its illustrative payloads and option names.
 
 ## Verification (2026-09-23)
 
-- TypeScript, ESLint, production build, and six focused Node tests passed.
-- Browser: the local application and history loaded; opening a saved report
-  rendered an iframe with that report's address, and closing it removed the map.
-- The standalone panel rendered its Hebrew labels and timeout/retry state.
-- Live GovMap initialization timed out on `127.0.0.1:5175`. The exact external
-  cause was not established; successful geocoding, parcel retrieval, and visual
-  layer rendering still need verification on an approved domain.
-- The GovMap integration was subsequently deployed. Live GovMap functionality
-  still requires verification on an approved domain.
+- TypeScript, ESLint, production build, and nine focused Node tests passed.
+- Production code through `20dcd49` is deployed. The existing domain token works
+  on `real-estate-appraisal-sage.vercel.app`; no token or environment change was needed.
+- Browser verification passed in both the standalone panel and the main app,
+  without submitting an AI request. The marker and cadastral layers rendered.
+- `התחייה 2 חדרה` returned block `10016`, parcel `126`; changing the main-app
+  address to `הרצל 10 חדרה` returned block `10036`, parcel `452`.
+- Initialization now leaves the map visible and awaits map/layer readiness
+  before lookup. Current `ADDR` results without legacy `ResultCode` are supported;
+  partial, ambiguous, and malformed results retain their safeguards.
