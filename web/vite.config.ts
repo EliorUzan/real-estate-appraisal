@@ -6,6 +6,14 @@ import { resolve } from "node:path";
 
 // Development-only bridge. No credentials are exposed to browser JavaScript.
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      input: {
+        app: fileURLToPath(new URL("./index.html", import.meta.url)),
+        govmap: fileURLToPath(new URL("./govmap.html", import.meta.url)),
+      },
+    },
+  },
   plugins: [react(), {
     name:"local-desktop-credential-import",
     apply:"serve",

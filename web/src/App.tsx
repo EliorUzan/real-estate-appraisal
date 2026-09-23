@@ -4,6 +4,7 @@ import type { FormEvent } from "react";
 import { api } from "./lib/edge";
 import { supabase } from "./lib/supabase";
 import catalog from "./catalog.json";
+import { GovMapPanel } from "./components/GovMapPanel";
 
 type Setting = { provider_id:string; model_id:string; configured:boolean; key_last4:string|null };
 type Prompt = { section_id:string; content:string; version:number };
@@ -102,8 +103,9 @@ async function encodeFile(file:File,role:string){
 function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
   const [provider,setProvider]=useState(data.defaultProvider),[model,setModel]=useState(data.settings.find(s=>s.provider_id===data.defaultProvider)?.model_id??catalog.providers.find(p=>p.id===data.defaultProvider)!.models[0][1]);
   const [address,setAddress]=useState(""),[example,setExample]=useState(""),[additional,setAdditional]=useState(""),[section,setSection]=useState("environment_description"),[workspace,setWorkspace]=useState(data.members[0].workspace_id);
-  const [exampleFiles,setExampleFiles]=useState<File[]>([]),[additionalFiles,setAdditionalFiles]=useState<File[]>([]),[consent,setConsent]=useState(false),[search,setSearch]=useState(false);
+  const [exampleFiles,setExampleFiles]=useState<File[]>([]),[additionalFiles,setAdditionalFiles]=useState<File[]>([]),[consent,setConsent]=useState(true),[search,setSearch]=useState(false);
   const [busy,setBusy]=useState(false),[output,setOutput]=useState(""),[error,setError]=useState(""),[notice,setNotice]=useState("");
+  const [reportAddress,setReportAddress]=useState("");
   const searchAvailable=["openai","gemini","anthropic"].includes(provider)||(provider==="groq"&&["openai/gpt-oss-20b","openai/gpt-oss-120b"].includes(model));
   const pdfAvailable=["openai","gemini","anthropic"].includes(provider);
   const configured=data.settings.find(s=>s.provider_id===provider)?.configured;
@@ -113,7 +115,7 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
     const files=await Promise.all([...exampleFiles.map(f=>encodeFile(f,"example")),...additionalFiles.map(f=>encodeFile(f,"additional"))]);
     const result=await api<{job:Job}>("generate",{requestId:crypto.randomUUID(),workspace,section,address,example,additional,provider,model,consent,search:search&&searchAvailable,files});
     if(result.job.status!=="succeeded")throw new Error("הבקשה בטיפול. בדקו את ההיסטוריה.");
-    setOutput(result.job.output_text??"");setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");
+    setOutput(result.job.output_text??"");setReportAddress(result.job.address);setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");
   }catch(e){setError(message(e));}finally{setBusy(false);}}
   return <><div className="title-row"><div><p className="eyebrow">כתיבה שמאית בעזרת AI</p><h1>בקשה חדשה</h1></div><span className="shared-badge">היסטוריה משותפת לצוות</span></div>
     <form onSubmit={generate}><fieldset disabled={busy} className="request-fields">
@@ -131,22 +133,29 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
       <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את התוכן והקבצים לספק שנבחר ולשמור את הטיוטה בהיסטוריית הצוות.</label>
     </fieldset><button disabled={busy||!configured||!model.trim()}>{busy?"יוצר טיוטה… נא להמתין":"צור"}</button></form>
     {busy&&<p role="status">הבקשה נשלחה לעיבוד. אין לסגור את החלון עד לקבלת תשובה.</p>}{error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status" className="success">{notice}</p>}
-    {output&&<Report text={output}/>}</>;
+    {output&&<Report text={output} address={reportAddress}/>}</>;
 }
-function Report({text}:{text:string}){
+function Report({text,address}:{text:string;address:string}){
   const [copied,setCopied]=useState(false),[error,setError]=useState("");
-  return <section className="report"><h2>טיוטה לבדיקה</h2><p className="muted">יש לבדוק את העובדות והניסוח לפני שילוב בשומה.</p><textarea aria-label="טיוטת הדוח" value={text} readOnly rows={15}/><div className="actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(text);setCopied(true);}catch{setError("לא ניתן להעתיק אוטומטית. סמנו את הטקסט והעתיקו.");}}}>{copied?"הועתק":"העתקה"}</button><button className="secondary" onClick={()=>{const url=URL.createObjectURL(new Blob(["\ufeff"+text],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="appraisal-draft.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}>הורדת טקסט</button></div>{error&&<p role="alert">{error}</p>}</section>;
+  return <section className="report"><h2>טיוטה לבדיקה</h2><p className="muted">יש לבדוק את העובדות והניסוח לפני שילוב בשומה.</p><textarea aria-label="טיוטת הדוח" value={text} readOnly rows={15}/><div className="actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(text);setCopied(true);}catch{setError("לא ניתן להעתיק אוטומטית. סמנו את הטקסט והעתיקו.");}}}>{copied?"הועתק":"העתקה"}</button><button className="secondary" onClick={()=>{const url=URL.createObjectURL(new Blob(["\ufeff"+text],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="appraisal-draft.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}>הורדת טקסט</button></div>{error&&<p role="alert">{error}</p>}<GovMapPanel address={address}/></section>;
+}
+function HistoryItem({job}:{job:Job}){
+  const [open,setOpen]=useState(false);
+  return <details className="history-item" onToggle={event=>setOpen(event.currentTarget.open)}>
+    <summary>{job.address} · {new Date(job.created_at).toLocaleString("he-IL")} · {({succeeded:"הושלם",running:"בטיפול",failed:"נכשל",needs_review:"דרושה בדיקה"} as Record<string,string>)[job.status]??job.status}</summary>
+    {open&&<><p><bdi>{job.provider_id} / {job.model_id}</bdi></p>{job.output_text?<Report text={job.output_text} address={job.address}/>:<p>{job.status==="running"?"הבקשה עדיין מסומנת בטיפול. אם חלפו כמה דקות, אין להפעיל שוב לפני בדיקת חיוב הספק.":job.error_code??"לא נשמרה טיוטה."}</p>}</>}
+  </details>;
 }
 function History(){
   const [jobs,setJobs]=useState<Job[]>([]),[error,setError]=useState(""),[busy,setBusy]=useState(true);
   async function refresh(){setBusy(true);try{const r=await api<{jobs:Job[]}>("history");setJobs(r.jobs);setError("");}catch(e){setError(message(e));}finally{setBusy(false);}}
   useEffect(()=>{void refresh();},[]);
-  return <><div className="title-row"><h1>היסטוריית הצוות</h1><button onClick={refresh} disabled={busy}>רענון</button></div>{error&&<p role="alert" className="error">{error}</p>}{busy?<p role="status">טוען…</p>:!jobs.length?<p>עדיין אין בקשות שמורות.</p>:jobs.map(job=><details className="history-item" key={job.id}><summary>{job.address} · {new Date(job.created_at).toLocaleString("he-IL")} · {({succeeded:"הושלם",running:"בטיפול",failed:"נכשל",needs_review:"דרושה בדיקה"} as Record<string,string>)[job.status]??job.status}</summary><p><bdi>{job.provider_id} / {job.model_id}</bdi></p>{job.output_text?<Report text={job.output_text}/>:<p>{job.status==="running"?"הבקשה עדיין מסומנת בטיפול. אם חלפו כמה דקות, אין להפעיל שוב לפני בדיקת חיוב הספק.":job.error_code??"לא נשמרה טיוטה."}</p>}</details>)}</>;
+  return <><div className="title-row"><h1>היסטוריית הצוות</h1><button onClick={refresh} disabled={busy}>רענון</button></div>{error&&<p role="alert" className="error">{error}</p>}{busy?<p role="status">טוען…</p>:!jobs.length?<p>עדיין אין בקשות שמורות.</p>:jobs.map(job=><HistoryItem key={job.id} job={job}/>)}</>;
 }
 function Workspace({session}:{session:Session}){
   const [view,setView]=useState<"new"|"history"|"settings">("new"),[data,setData]=useState<Bootstrap|null>(null),[error,setError]=useState("");
   useEffect(()=>{let active=true;api<Bootstrap>("bootstrap").then(d=>{if(active)setData(d);}).catch(e=>{if(active)setError(message(e));});return()=>{active=false;};},[]);
-  return <div dir="rtl"><header><span className="brand">עוזר להערכת מקרקעין</span><nav aria-label="ניווט ראשי"><button className={view==="new"?"nav-active":""} onClick={()=>setView("new")}>בקשה חדשה</button><button className={view==="history"?"nav-active":""} onClick={()=>setView("history")}>היסטוריה</button></nav><span className="account"><bdi>{session.user.email}</bdi><button className="quiet-button" onClick={()=>supabase.auth.signOut()}>יציאה</button></span><button className={"gear "+(view==="settings"?"nav-active":"")} aria-label="הגדרות" title="הגדרות" onClick={()=>setView("settings")}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m9 3-1 3-3 1-2 3 2 2v3l3 2 1 4h5l1-3 3-1 3-3-2-2v-3l-3-2-1-4z"/><circle cx="12" cy="12" r="3"/></svg></button></header>
+  return <div dir="rtl"><header><span className="brand">עוזר להערכת מקרקעין</span><nav aria-label="ניווט ראשי"><button className={view==="new"?"nav-active":""} onClick={()=>setView("new")}>בקשה חדשה</button><button className={view==="history"?"nav-active":""} onClick={()=>setView("history")}>היסטוריה</button></nav><span className="account"><bdi>{session.user.email}</bdi><button className="quiet-button" onClick={()=>supabase.auth.signOut()}>יציאה</button></span><button className={"gear "+(view==="settings"?"nav-active":"")} aria-label="הגדרות" title="הגדרות" onClick={()=>setView("settings")}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.325 4.317a1.125 1.125 0 0 1 1.088-.817h1.174c.53 0 .996.35 1.088.857l.196 1.084c.056.311.252.57.537.719.257.135.5.293.724.47.254.2.598.238.888.103l1.009-.47a1.125 1.125 0 0 1 1.487.49l.587 1.016c.274.474.11 1.08-.365 1.354l-.918.53a1.125 1.125 0 0 0-.562.974v.746c0 .402.215.774.562.974l.918.53c.475.274.639.88.365 1.354l-.587 1.016a1.125 1.125 0 0 1-1.487.49l-1.009-.47a1.125 1.125 0 0 0-.888.103c-.224.177-.467.335-.724.47a1.125 1.125 0 0 0-.537.719l-.196 1.084a1.125 1.125 0 0 1-1.088.857h-1.174a1.125 1.125 0 0 1-1.088-.817l-.196-1.084a1.125 1.125 0 0 0-.537-.719 5.23 5.23 0 0 1-.724-.47 1.125 1.125 0 0 0-.888-.103l-1.009.47a1.125 1.125 0 0 1-1.487-.49l-.587-1.016a1.125 1.125 0 0 1 .365-1.354l.918-.53a1.125 1.125 0 0 0 .562-.974v-.746c0-.402-.215-.774-.562-.974l-.918-.53a1.125 1.125 0 0 1-.365-1.354l.587-1.016a1.125 1.125 0 0 1 1.487-.49l1.009.47a1.125 1.125 0 0 0 .888-.103c.224-.177.467-.335.724-.47.285-.15.481-.408.537-.719l.196-1.084Z"/><circle cx="12" cy="12" r="3"/></svg></button></header>
     <main className="workspace"><section className="content-card">{error?<><p className="error" role="alert">{error}</p><button onClick={()=>location.reload()}>ניסיון נוסף</button></>:!data?<p role="status">טוען את החשבון…</p>:view==="settings"?<Settings data={data} setData={setData}/>:view==="history"?<History/>:<NewRequest data={data} onSettings={()=>setView("settings")}/>}</section></main>
   </div>;
 }

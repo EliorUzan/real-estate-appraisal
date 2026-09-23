@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>מפת הנכס — GovMap</title>
+  </head>
+  <body>
+    <main>
+      <h2>מפת הנכס · GovMap</h2>
+      <dl>
+        <div><dt>כתובת מבוקשת:</dt><dd id="requested-address"></dd></div>
+        <div><dt>גוש חלקה:</dt><dd id="parcels" aria-live="polite">טוען…</dd></div>
+      </dl>
+      <p id="map-status" role="status">טוען את המפה…</p>
+      <button id="retry" type="button" hidden>ניסיון נוסף</button>
+      <div id="map-shell" aria-busy="true">
+        <div id="govmap" aria-label="מפת הכתובת עם שכבות גושים וחלקות"></div>
+        <div id="map-placeholder">המפה תוצג לאחר איתור הכתובת.</div>
+      </div>
+      <p class="source">מקור: GovMap · שכבות גושים וחלקות</p>
+    </main>
+    <script type="module" src="/src/govmap-frame.ts"></script>
+  </body>
+</html>
