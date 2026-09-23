@@ -57,7 +57,7 @@ export async function withTimeout<T>(operation: PromiseLike<T>, milliseconds = 2
 
 export interface GovMapApi {
   geocodeType: { AccuracyOnly: number };
-  createMap(id: string, settings: Record<string, unknown>): void | PromiseLike<unknown>;
+  createMap(id: string, settings: Record<string, unknown>): PromiseLike<void>;
   geocode(params: { keyword: string; type: number }): PromiseLike<unknown>;
   intersectFeatures(params: { geometry: string; layerName: string; fields: string[] }): PromiseLike<unknown>;
   zoomToXY(params: { x: number; y: number; level: number; marker: boolean }): void;

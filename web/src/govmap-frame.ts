@@ -26,10 +26,14 @@ async function initialize() {
     fail("יש להזין כתובת מלאה הכוללת יישוב, רחוב ומספר בית.");
     return;
   }
+  let stage: "sdk" | "map" | "address" = "sdk";
   try {
     const api = await loadGovMap();
-    await withTimeout(new Promise<void>((resolve, reject) => {
-      const creation = api.createMap("govmap", {
+    stage = "map";
+    // The current SDK's promise completes after the iframe handshake and token
+    // authentication. Its onLoad callback additionally waits for a render-driven
+    // event that can be missed or delayed; it must not gate address requests.
+    await withTimeout(api.createMap("govmap", {
         token,
         layers: CADASTRAL_LAYERS,
         visibleLayers: CADASTRAL_LAYERS,
@@ -37,15 +41,11 @@ async function initialize() {
         layersMode: 1,
         zoomButtons: true,
         identifyOnClick: true,
-        onLoad: resolve,
-        onError: () => reject(new Error("Map initialization failed")),
-      });
-      // Current SDK versions also return a promise; capture handshake failures.
-      void Promise.resolve(creation).catch(reject);
-    }));
+      }), 45000);
     // Label the cross-origin frame created by the SDK for assistive technology.
     document.querySelector("#govmap iframe")?.setAttribute("title", `מפת GovMap — ${address}`);
     status.textContent = "מאתר את הכתובת…";
+    stage = "address";
     const point = parseLocation(await withTimeout(api.geocode({ keyword: address, type: api.geocodeType.AccuracyOnly })));
     if (!point) {
       fail("לא נמצאה כתובת חד־משמעית. יש לדייק את היישוב, הרחוב ומספר הבית בבקשה.");
@@ -77,8 +77,11 @@ async function initialize() {
       status.textContent = "הכתובת אותרה במפה, אך לא ניתן היה לקבל את נתוני הגוש והחלקה.";
       retry.hidden = false;
     }
-  } catch {
-    fail("לא ניתן לטעון את GovMap כרגע. ייתכן שהשירות אינו זמין או שכתובת האתר טרם אושרה לשימוש במפה.");
+  } catch (error) {
+    console.warn("GovMap initialization failed", { stage, reason: error instanceof Error ? error.message : "Unknown error" });
+    fail(stage === "address"
+      ? "המפה נטענה, אך לא ניתן היה לאתר את הכתובת כרגע. נסו שוב."
+      : "לא ניתן להשלים את טעינת GovMap כרגע. נסו שוב.");
   }
 }
 
