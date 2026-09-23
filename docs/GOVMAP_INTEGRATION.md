@@ -17,7 +17,8 @@ point with `intersectFeatures` and fields `GUSH_NUM`, `PARCEL`. Both
 All distinct intersecting parcels are displayed. `FullResult` preserves address
 candidates: the current SDK's `AccuracyOnly` returns only its first suggestion.
 Current results use `ResultType`, address components, and `ResultLable`, not the
-legacy `ResultCode` accuracy field. Only a unique complete address matching the
+legacy `ResultCode` accuracy field. Address-index results identify their layer
+as `ADDR` and can omit the optional address components. Only a unique complete address matching the
 entered address is treated as exact. A single unmatched or incomplete result is
 labelled approximate and does not display parcel identifiers. Ambiguous or missing
 addresses never silently select the first result. SDK, map, and lookup waits

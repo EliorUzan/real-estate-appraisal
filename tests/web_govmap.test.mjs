@@ -43,6 +43,17 @@ test("current SDK ResultType does not establish accuracy for incomplete or misma
   assert.deepEqual(parseParcels({ status: 1, errorCode: 0, data: null }), []);
 });
 
+test("current ADDR index matches remain exact when optional address components are absent", () => {
+  // Current public SDK shape for the sample address; ResultCode and optional
+  // house/street/settlement fields are absent from this index.
+  const address = { DescLayerID: "ADDR", ResultLable: "התחייה 2 חדרה", ResultType: 1,
+    X: 191400.23, Y: 705819.42 };
+  assert.deepEqual(parseLocation({ status: 0, errorCode: 0, data: [address] }, "התחייה 2, חדרה"),
+    { x: address.X, y: address.Y, approximate: false, label: address.ResultLable });
+  assert.equal(parseLocation({ data: [address] }, "התחייה 20 חדרה")?.approximate, true);
+  assert.equal(parseLocation({ data: [{ ...address, DescLayerID: "STREET" }] }, address.ResultLable)?.approximate, true);
+});
+
 test("retains all intersecting parcels, deduplicates, and handles empty results", () => {
   assert.deepEqual(parseParcels({ status: 0, errorCode: 0, data: [
     { ObjectId: 1, Values: [7103, 90] }, { ObjectId: 2, Values: [7103, 92] }, { ObjectId: 3, Values: ["7103", "90"] },

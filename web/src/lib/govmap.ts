@@ -32,9 +32,12 @@ export function parseLocation(response: unknown, requestedAddress = ""): Point |
   // Request FullResult and select only a unique complete address matching the
   // user's input; AccuracyOnly currently discards all but the first candidate.
   const isExactAddress = (item: RecordValue) => item.ResultType === 1 &&
-    typeof item.streetName === "string" && item.streetName.trim() !== "" &&
-    typeof item.settlementName === "string" && item.settlementName.trim() !== "" &&
-    /[1-9]/.test(String(item.houseNumber ?? "")) && requested !== "" &&
+    // GovMap's current address index returns ADDR results without the optional
+    // street/settlement/house fields. Street-only results use a different layer.
+    (item.DescLayerID === "ADDR" ||
+      (typeof item.streetName === "string" && item.streetName.trim() !== "" &&
+       typeof item.settlementName === "string" && item.settlementName.trim() !== "" &&
+       /[1-9]/.test(String(item.houseNumber ?? "")))) && requested !== "" &&
     [item.ResultLable, `${item.streetName} ${item.houseNumber} ${item.entryLetter ?? ""} ${item.settlementName}`]
       .some(label => normalizeAddress(label) === requested);
   const exact = rows.map(record).filter(isExactAddress);
