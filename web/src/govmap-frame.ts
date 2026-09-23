@@ -30,9 +30,9 @@ async function initialize() {
   try {
     const api = await loadGovMap();
     stage = "map";
-    // The current SDK's promise completes after the iframe handshake and token
-    // authentication. Its onLoad callback additionally waits for a render-driven
-    // event that can be missed or delayed; it must not gate address requests.
+    // Keep the iframe visible while waiting: onLoad requires a rendered map.
+    // Supplying it also makes the SDK promise await application/layer readiness,
+    // preventing an early parcel query from returning a false empty result.
     await withTimeout(api.createMap("govmap", {
         token,
         layers: CADASTRAL_LAYERS,
@@ -41,10 +41,10 @@ async function initialize() {
         layersMode: 1,
         zoomButtons: true,
         identifyOnClick: true,
+        onLoad: () => { status.textContent = "מאתר את הכתובת…"; },
       }), 45000);
     // Label the cross-origin frame created by the SDK for assistive technology.
     document.querySelector("#govmap iframe")?.setAttribute("title", `מפת GovMap — ${address}`);
-    status.textContent = "מאתר את הכתובת…";
     stage = "address";
     const point = parseLocation(await withTimeout(api.geocode({ keyword: address, type: api.geocodeType.FullResult })), address);
     if (!point) {

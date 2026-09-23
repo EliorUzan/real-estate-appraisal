@@ -8,9 +8,11 @@ the selected address in its URL fragment, so editing the input cannot move an
 existing map until the user explicitly opens the new address. Each frame owns
 its GovMap SDK instance and is removed with its page or history item.
 
-The frame loads the official remote SDK and awaits its `createMap` promise
-(iframe connection and token authentication). The map stays rendered while
-loading; the SDK's render-dependent `onLoad` callback does not gate lookup.
+The frame loads the official remote SDK and awaits its `createMap` promise with
+an `onLoad` callback (iframe connection, authentication, and map/layer readiness).
+The map stays rendered while loading: hiding it until geocoding would prevent
+the render-dependent readiness callback. Layer readiness must precede parcel
+lookup to avoid false empty results while the catalog is still loading.
 It geocodes the address, focuses it with a marker, then queries `PARCEL_ALL` at that same ITM
 point with `intersectFeatures` and fields `GUSH_NUM`, `PARCEL`. Both
 `SUB_GUSH_ALL` and `PARCEL_ALL` are in `layers` **and** `visibleLayers`.
