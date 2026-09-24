@@ -45,7 +45,7 @@ plotSelect.addEventListener("change",async()=>{
   try {
     const spatial=await collectPlotEvidence(activeApi,token,selected,addressPoint,message=>{if(version===collectionVersion)plotWarning.textContent=message;},()=>version===collectionVersion);
     if(version!==collectionVersion)return;
-    text("plot-topography","לא הוחזרו נתוני גובה או שיפוע מ־GovMap");
+    text("plot-topography","לא מחובר מקור נתוני גובה או שיפוע");
     text("plot-shape",spatial.geometryAnalysis?.shape??"לא ניתן לנתח את הצורה מהנתונים שהוחזרו");
     (document.getElementById("plot-coordinates") as HTMLTextAreaElement).value=spatial.parcelGeometry??"לא הוחזר גבול חלקה";
     const buildings=spatial.layers.find(l=>l.layer==="BUILDINGS");
@@ -61,7 +61,7 @@ plotSelect.addEventListener("change",async()=>{
       text(id,description||"לא אומת גבול בכיוון זה");
       borders.push({direction:direction as PlotBorder["direction"],description});
     }
-    text("plot-evidence-details",JSON.stringify({layers:spatial.layers,neighbors:spatial.neighbors.map(n=>({...n,geometry:undefined})),warnings:spatial.warnings},null,2));
+    text("plot-evidence-details",JSON.stringify({geometryDiagnostics:spatial.geometryDiagnostics,layers:spatial.layers,neighbors:spatial.neighbors.map(n=>({...n,geometry:undefined})),warnings:spatial.warnings},null,2));
     const data:PlotAnalysisData={address,retrievedAt,source:"GovMap PARCEL_ALL",gush:selected.block,parcel:selected.parcel,cadastralArea:selected.cadastralArea,registeredArea:null,topography:"",geometryShape:spatial.geometryAnalysis?.shape??"",borders,buildingsSummary:"",planningNotes:"",warnings:spatial.warnings,spatial};
     plotWarning.textContent="האיסוף הסתיים. "+(spatial.warnings.length?"חלק מהנתונים חסרים או טעונים אימות; פירוט במקורות השכבות.":"הנתונים מוכנים לבדיקה.");
     publish(data);

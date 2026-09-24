@@ -6,6 +6,7 @@ export type SpatialEvidence = {
   crs:"EPSG:2039";
   addressPoint:{x:number;y:number};
   parcelGeometry:string|null;
+  geometryDiagnostics?:{searchResult:Record<string,unknown>;format:string;rawGeometry:unknown};
   geometryAnalysis:ReturnType<typeof describeGeometry>|null;
   neighbors:{gush:string;parcel:string;geometry:string;borders:ReturnType<typeof sharedBorders>;layers:SpatialEvidence["layers"]}[];
   layers:{layer:string;status:"received"|"unavailable";fields:Record<string,string>;features:unknown[];error?:string}[];
@@ -43,11 +44,14 @@ export function selectParcelSearchResult(response:unknown, parcel:Parcel): Recor
   if(matches.length!==1)throw new Error("לא נמצאה התאמה יחידה לגוש והחלקה שנבחרו; לא נעשה שימוש בתוצאה אחרת.");
   return matches[0];
 }
-async function parcelGeometry(api:GovMapApi, token:string, parcel:Parcel):Promise<string> {
+async function parcelGeometry(api:GovMapApi, token:string, parcel:Parcel, diagnose?:(data:NonNullable<SpatialEvidence["geometryDiagnostics"]>)=>void):Promise<string> {
   const found=selectParcelSearchResult(await withTimeout(api.search({searchText:`גוש ${parcel.block} חלקה ${parcel.parcel}`,apiKey:token,language:"he",maxResults:10,isAccurate:true})),parcel);
   const detail=object(body(await withTimeout(api.getSearchResultData(found,token))));
+  const raw=detail.geom;
+  const format=typeof raw==="string" ? (/^[0-9a-f]+$/i.test(raw.trim())?"hex-encoded geometry":raw.trim().match(/^[A-Za-z]+/)?.[0]??"unknown text") : raw===null?"null":typeof raw;
+  diagnose?.({searchResult:{id:found.id,type:found.type,layerId:found.layerId,objectId:found.objectId,text:found.text},format,rawGeometry:raw??null});
   if(typeof detail.geom!=="string")throw new Error("GovMap לא החזיר גיאומטריית חלקה.");
-  if(!/^(?:MULTI)?POLYGON\s*\(/i.test(detail.geom))throw new Error("GovMap לא החזיר פוליגון חלקה.");
+  if(!/^(?:MULTI)?POLYGON\s*\(/i.test(detail.geom))throw new Error(`הוחזרה גיאומטריה מסוג ${format}, שאינה נתמכת כמסגרת חלקה. הערך המקורי נשמר בפירוט המקורות.`);
   return detail.geom;
 }
 
@@ -56,7 +60,7 @@ export async function collectPlotEvidence(api:GovMapApi, token:string, parcel:Pa
   const evidence:SpatialEvidence={crs:"EPSG:2039",addressPoint:{x:point.x,y:point.y},parcelGeometry:null,geometryAnalysis:null,neighbors:[],layers:[],topography:null,warnings:[]};
   try {
     progress("אוסף את גבול החלקה…");
-    evidence.parcelGeometry=await parcelGeometry(api,token,parcel);
+    evidence.parcelGeometry=await parcelGeometry(api,token,parcel,data=>{evidence.geometryDiagnostics=data;});
     const polygon=parsePolygon(evidence.parcelGeometry);
     evidence.geometryAnalysis=describeGeometry(polygon);
     if(!active())return evidence;
@@ -105,8 +109,9 @@ export async function collectPlotEvidence(api:GovMapApi, token:string, parcel:Pa
       }
     } catch { evidence.warnings.push("לא ניתן היה לשלוף את החלקות הגובלות."); }
   } catch(error){evidence.warnings.push(error instanceof Error?error.message:"שליפת גבול החלקה נכשלה.");}
-  evidence.warnings.push("לא התקבלו נתוני גובה או שיפוע; אין לקבוע שהקרקע מישורית על סמך מפת גבולות.",
-    "שכבות תכנון ודרכים נאספו בחיתוך עם החלקה; הן אינן מוכיחות ייעוד גובל בכיוון מסוים.",
+  if(!evidence.geometryAnalysis)evidence.warnings.push("איסוף השכבות והגבולות לא בוצע משום שלא התקבלה גיאומטריית חלקה נתמכת.");
+  evidence.warnings.push("לא מחובר מקור נתוני גובה או שיפוע; לא נשלחה בקשת גובה ואין להסיק מישוריות מקואורדינטות XY.",
+    "רשומות תכנון ודרכים, ככל שהוחזרו, אינן מוכיחות ייעוד גובל בכיוון מסוים.",
     "רשומות בינוי חופפות אינן מוכיחות שימוש, מספר מבנים שלמים או שהחלקה פנויה.");
   for(const layer of evidence.layers)if(layer.status==="unavailable")evidence.warnings.push(`שכבת ${layer.layer}: ${layer.error}`);
   return evidence;

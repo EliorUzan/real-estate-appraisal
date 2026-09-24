@@ -99,3 +99,20 @@ test("unavailable optional layers do not discard parcel geometry",async()=>{
   assert.ok(result.geometryAnalysis);
   assert.ok(result.layers.every(l=>l.status==="unavailable"));
 });
+
+test("unsupported search geometry is retained for live-domain diagnostics",async()=>{
+  const raw="MULTILINESTRING ((200000 700000,200020 700000))";
+  let layerRequests=0;
+  const result=await collectPlotEvidence({
+    search:async()=>({results:[{id:"parcel|1",type:"parcel",text:"6158 / 1291"}]}),
+    getSearchResultData:async()=>({geom:raw}),
+    getLayerFilterFields:async()=>{layerRequests++;return [];},
+  },"token",{block:"6158",parcel:"1291"},{x:200000,y:700000});
+  assert.equal(result.geometryDiagnostics.rawGeometry,raw);
+  assert.equal(result.geometryDiagnostics.format,"MULTILINESTRING");
+  assert.equal(result.geometryDiagnostics.searchResult.type,"parcel");
+  assert.equal(result.parcelGeometry,null);
+  assert.equal(result.geometryAnalysis,null);
+  assert.equal(layerRequests,0);
+  assert.ok(result.warnings.some(w=>w.includes("לא בוצע")));
+});
