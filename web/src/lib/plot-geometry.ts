@@ -6,6 +6,11 @@ const cross = (o: XY, a: XY, b: XY) => (a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]
 
 export function parsePolygon(wkt: string): Polygon {
   let normalized=wkt.trim();
+  const header=/^(MULTIPOLYGON|POLYGON)\s*(ZM|Z|M)?\s*(?=\()/i.exec(normalized);
+  if(!header)throw new Error("נדרש פוליגון חלקה תקין; גיאומטריה אחרת לא נותחה.");
+  const dimensions=header[2]?.toUpperCase();
+  const coordinateCount=dimensions==="ZM"?4:dimensions?3:2;
+  normalized=header[1].toUpperCase()+normalized.slice(header[0].length);
   if(/^MULTIPOLYGON/i.test(normalized)) {
     if(/\)\s*\)\s*,\s*\(\s*\(/.test(normalized))throw new Error("לחלקה כמה מתחמים נפרדים; נדרש ניתוח גיאומטרי נפרד לכל מתחם.");
     normalized=normalized.replace(/^MULTIPOLYGON\s*\(/i,"POLYGON").replace(/\)\s*$/,"");
@@ -13,13 +18,19 @@ export function parsePolygon(wkt: string): Polygon {
   if (!/^POLYGON\s*\(\s*\([^()]+\)(\s*,\s*\([^()]+\))*\s*\)$/i.test(normalized)) throw new Error("נדרש פוליגון חלקה תקין; גיאומטריה אחרת לא נותחה.");
   const rings=[...normalized.matchAll(/\(([^()]+)\)/g)].map(match => match[1].split(",").map(pair => {
     const values = pair.trim().split(/\s+/).map(Number);
-    if (values.length !== 2 || !values.every(Number.isFinite)) throw new Error("קואורדינטות חלקה לא תקינות.");
+    if (values.length !== coordinateCount || !values.every(Number.isFinite)) throw new Error("קואורדינטות חלקה לא תקינות.");
     const [x,y] = values;
     if (x < 0 || x > 500000 || y < 100000 || y > 1000000) throw new Error("מערכת הקואורדינטות אינה תואמת EPSG:2039.");
     return [x,y] as XY;
   }));
   if (rings.some(ring => ring.length < 4 || ring.length > 10000 || ring[0][0] !== ring.at(-1)![0] || ring[0][1] !== ring.at(-1)![1])) throw new Error("גבול החלקה אינו טבעת סגורה.");
   return rings;
+}
+
+// Query horizontal footprints using 2D WKT, while retaining the original XYZ
+// response separately. Cadastral Z values have no verified terrain provenance.
+export function planarWkt(polygon:Polygon):string {
+  return `POLYGON (${polygon.map(ring=>`(${ring.map(([x,y])=>`${x} ${y}`).join(", ")})`).join(", ")})`;
 }
 
 const area = (ring: XY[]) => Math.abs(ring.slice(1).reduce((sum,p,i) => sum+cross(ring[0],ring[i],p),0))/2;

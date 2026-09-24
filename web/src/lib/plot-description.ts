@@ -1,5 +1,6 @@
 import { parseParcels } from "./govmap.ts";
 import type { SpatialEvidence } from "./plot-evidence.ts";
+import type { GovMapResponse } from "./govmap-responses.ts";
 
 export type PlotParcel = { block: string; parcel: string; cadastralArea: number | null };
 export type PlotBorder = { direction: "מצפון" | "ממערב" | "מדרום" | "ממזרח"; description: string };
@@ -18,6 +19,7 @@ export type PlotAnalysisData = {
   planningNotes: string;
   warnings: string[];
   spatial?: SpatialEvidence;
+  rawGovMapResponses?: GovMapResponse[];
 };
 
 export function parsePlotParcels(response: unknown): PlotParcel[] {

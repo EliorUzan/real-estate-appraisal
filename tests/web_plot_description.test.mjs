@@ -3,12 +3,27 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { parsePlotParcels, positiveArea, renderPlotDescription } from "../web/src/lib/plot-description.ts";
 import { selectParcelSearchResult, collectPlotEvidence, layerFacts } from "../web/src/lib/plot-evidence.ts";
-import { parsePolygon, describeGeometry } from "../web/src/lib/plot-geometry.ts";
+import { parsePolygon, planarWkt, describeGeometry } from "../web/src/lib/plot-geometry.ts";
+import { recordGovMapResponses } from "../web/src/lib/govmap-responses.ts";
 
 test("the deployed plot agent contains the complete canonical Markdown",()=>{
   const canonical=readFileSync(new URL("../src/appraisal_assistant/agents/prompts/plot_description.md",import.meta.url),"utf8");
   const bundled=JSON.parse(readFileSync(new URL("../supabase/functions/appraisal/plot-prompt.json",import.meta.url),"utf8"));
   assert.equal(bundled.content,canonical.replace(/\r\n/g,"\n"));
+  const editor=JSON.parse(readFileSync(new URL("../web/src/plot-prompt.json",import.meta.url),"utf8"));
+  assert.equal(editor.content,bundled.content);
+});
+
+test("raw evidence keeps full SDK responses without request credentials or later mutations",async()=>{
+  const records=[];
+  const response={geom:"MULTIPOLYGON Z (((1 2 0)))",otherField:{meaning:"unfiltered"}};
+  const sdk={marker:true,getSearchResultData:async function(){assert.equal(this.marker,true);return response;}};
+  const api=recordGovMapResponses(sdk,records);
+  assert.equal(await api.getSearchResultData({id:"parcel"},"private-token"),response);
+  response.otherField.meaning="changed";
+  assert.equal(records[0].response.otherField.meaning,"unfiltered");
+  assert.equal(records[0].method,"getSearchResultData");
+  assert.ok(!JSON.stringify(records).includes("private-token"));
 });
 
 test("collects cadastral area only when GovMap returns a valid value", () => {
@@ -75,7 +90,7 @@ test("evidence retains coordinates, queries neighbour designations and leaves mi
     search:async({searchText})=>({results:[{text:searchText}]}),
     getSearchResultData:async({text})=>({geom:text.endsWith("91")?subject:neighbor}),
     getLayerFilterFields:async()=>[{name:"use_name",displayName:"ייעוד"}],
-    getLayerFeaturesByLocation:async(query)=>{queries.push(query);return {layers:{[query.layers[0].name]:[{attributes:{use_name:query.geometry===neighbor?"מגורים":"מסחר"}}]}};},
+    getLayerFeaturesByLocation:async(query)=>{queries.push(query);return {layers:{[query.layers[0].name]:[{attributes:{use_name:query.geometry===planarWkt(parsePolygon(neighbor))?"מגורים":"מסחר"}}]}};},
     intersectFeatures:async()=>({data:[{Values:[11140,91]},{Values:[11140,92]}]}),
   };
   const result=await collectPlotEvidence(api,"token",{block:"11140",parcel:"91"},{x:200005,y:700005});
@@ -83,7 +98,7 @@ test("evidence retains coordinates, queries neighbour designations and leaves mi
   assert.equal(result.topography,null);
   assert.equal(result.neighbors.length,1);
   assert.equal(result.neighbors[0].borders[0].direction,"ממזרח");
-  assert.ok(queries.some(q=>q.geometry===neighbor));
+  assert.ok(queries.some(q=>q.geometry===planarWkt(parsePolygon(neighbor))));
   assert.match(layerFacts(result.neighbors[0].layers[0])[0],/מגורים/);
   assert.equal(result.neighbors[0].geometry,neighbor);
 });
@@ -115,4 +130,35 @@ test("unsupported search geometry is retained for live-domain diagnostics",async
   assert.equal(result.geometryAnalysis,null);
   assert.equal(layerRequests,0);
   assert.ok(result.warnings.some(w=>w.includes("לא בוצע")));
+});
+
+const liveParcel6158 = "MULTIPOLYGON Z (((183443.4 664764.41 0, 183442.67 664750.73 0, 183398.75 664752.47 0, 183399.55 664766.44 0, 183443.4 664764.41 0)))";
+
+test("actual GovMap parcel 6158/1291 XYZ response produces a rectangular footprint",()=>{
+  const polygon=parsePolygon(liveParcel6158);
+  assert.deepEqual(polygon[0][0],[183443.4,664764.41]);
+  assert.equal(polygon[0].length,5);
+  assert.equal(describeGeometry(polygon).shape,"מעין מלבנית");
+  assert.ok(describeGeometry(polygon).graphicArea>600);
+  assert.ok(describeGeometry(polygon).graphicArea<640);
+  assert.deepEqual(parsePolygon(planarWkt(polygon)),polygon);
+  assert.throws(()=>parsePolygon("POLYGON Z ((200000 700000,200010 700000,200010 700010,200000 700000))"));
+});
+
+test("Z coordinates no longer prevent layer requests and are not treated as terrain",async()=>{
+  const geometries=[];
+  const result=await collectPlotEvidence({
+    search:async()=>({results:[{id:"parcel|LAYER_PARCEL_ALL|135955",type:"parcel",text:"גוש 6158 חלקה 1291"}]}),
+    getSearchResultData:async()=>({geom:liveParcel6158}),
+    getLayerFilterFields:async()=>[{name:"name",displayName:"שם"}],
+    getLayerFeaturesByLocation:async q=>{geometries.push(q.geometry);return {layers:{[q.layers[0].name]:[]}};},
+    intersectFeatures:async q=>{geometries.push(q.geometry);return {data:[]};},
+  },"token",{block:"6158",parcel:"1291"},{x:183420,y:664757});
+  assert.equal(result.parcelGeometry,liveParcel6158);
+  assert.equal(result.geometryDiagnostics.format,"MULTIPOLYGON Z");
+  assert.equal(result.geometryAnalysis.shape,"מעין מלבנית");
+  assert.equal(result.topography,null);
+  assert.equal(geometries.length,5);
+  assert.ok(geometries.every(g=>g===planarWkt(parsePolygon(liveParcel6158))));
+  assert.ok(result.warnings.some(w=>w.includes("ערכי Z")));
 });

@@ -4,6 +4,7 @@ import type { FormEvent } from "react";
 import { api } from "./lib/edge";
 import { supabase } from "./lib/supabase";
 import catalog from "./catalog.json";
+import plotAgent from "./plot-prompt.json";
 import { GovMapPanel } from "./components/GovMapPanel";
 import type { PlotAnalysisData } from "./lib/plot-description";
 
@@ -13,7 +14,7 @@ type Bootstrap = { settings:Setting[]; prompts:Prompt[]; members:{workspace_id:s
 type Job = { id:string; address:string; status:string; output_text?:string; provider_id:string; model_id:string; created_at:string; error_code?:string };
 const message = (error:unknown) => error instanceof Error ? error.message : "הפעולה נכשלה";
 const defaultPrompt = (section:string) => section==="environment_description" ? catalog.defaultPrompt : section==="plot_description"
-  ? "# תיאור החלקה · סעיף 7.1\n\nכתוב בעברית מקצועית ותמציתית את סעיף תיאור החלקה לשומת מקרקעין. השתמש אך ורק בנתוני govmap_spatial_evidence ובעובדות שסופקו. אין להמציא שטח רשום, טופוגרפיה, גבולות, שימושים, מבנים או ייעודים; נתוני GovMap הם נתוני עזר ויש לציין אי-ודאות מהותית תחת הערה לשמאי. הצג רק טקסט מוכן להעתקה לשומה."
+  ? plotAgent.content
   : "# "+catalog.sections.find(s=>s.id===section)?.label+"\n\nפרק זה טרם מומש. ניתן להכין כאן הוראות אישיות לשימוש עתידי.";
 function Icon({provider}:{provider:string}) {
   if(provider==="openai" || provider==="gemini" || provider==="groq")return <img className="provider-icon" alt={provider==="openai"?"ChatGPT":provider==="groq"?"Groq":"Gemini"} src={"/icons/"+(provider==="openai"?"chatgpt":provider)+".svg"}/>;
@@ -91,7 +92,7 @@ function Settings({data,setData}:{data:Bootstrap;setData:(d:Bootstrap)=>void}){
     <label>ספק ברירת מחדל<select value={data.defaultProvider} onChange={async e=>{const provider=e.target.value;try{await api("defaultProvider",{provider});setData({...data,defaultProvider:provider});setError("");}catch(e){setError(message(e));}}}>{catalog.providers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
     {error&&<p role="alert" className="error">{error}</p>}
     <div className="providers">{catalog.providers.map(p=><ProviderCard key={p.id} provider={p} setting={data.settings.find(s=>s.provider_id===p.id)} onSaved={s=>setData({...data,settings:[...data.settings.filter(x=>x.provider_id!==s.provider_id),s]})}/>)}</div>
-    <AccountSettings data={data}/><details className="advanced"><summary>הגדרות מתקדמות · Advanced settings</summary><h2>קובצי סוכנים אישיים</h2><p>ההוראות פרטיות לחשבון שלך. רק פרקים הזמינים גם ביישום השולחני ניתנים ליצירה.</p>
+    <AccountSettings data={data}/><details className="advanced"><summary>הגדרות מתקדמות · Advanced settings</summary><h2>קובצי סוכנים אישיים</h2><p>ההוראות פרטיות לחשבון שלך. בחרו פרק כדי לערוך את קובץ הסוכן המלא. הגרסה השמורה תשמש בבקשה הבאה במקום ברירת המחדל.</p>
       <label>פרק הדוח<select value={section} onChange={e=>setSection(e.target.value)}>{catalog.sections.map(s=><option disabled={!s.available} key={s.id} value={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}</select></label>
       <PromptEditor key={section} section={section} prompt={data.prompts.find(p=>p.section_id===section)} onSaved={p=>setData({...data,prompts:[...data.prompts.filter(x=>x.section_id!==p.section_id),p]})}/>
     </details></>;
@@ -133,7 +134,7 @@ function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap
       if(!pdfAvailable&&all.some(f=>/\.pdf$/i.test(f.name)))throw new Error("יש לבחור ספק התומך ב־PDF או להסיר את הקובץ.");
       const files=await Promise.all([...exampleFiles.map(f=>encodeFile(f,"example")),...additionalFiles.map(f=>encodeFile(f,"additional"))]);
       const plotEvidence=isPlot?JSON.stringify(plotData):undefined;
-      if(plotEvidence&&plotEvidence.length>100000)throw new Error("נתוני המיפוי גדולים מדי לשליחה. יש לצמצם את נתוני השכבות.");
+      if(plotEvidence&&plotEvidence.length>1000000)throw new Error("נתוני המיפוי גדולים מדי לשליחה (מעל מיליון תווים). לא נשלחו נתונים חלקיים.");
       const result=await api<{job:Job}>("generate",{requestId:crypto.randomUUID(),workspace,section,address:isPlot?plotData!.address:address,example,additional,plotEvidence,provider,model,consent,search:!isPlot&&search&&searchAvailable,files});
       if(result.job.status!=="succeeded")throw new Error("הבקשה בטיפול. בדקו את ההיסטוריה.");
       setOutput(result.job.output_text??"");setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");

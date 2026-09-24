@@ -3,6 +3,8 @@ import { parsePlotParcels } from "./lib/plot-description";
 import type { PlotAnalysisData, PlotBorder, PlotParcel } from "./lib/plot-description";
 import { collectPlotEvidence, layerFacts } from "./lib/plot-evidence";
 import type { GovMapApi, Point } from "./lib/govmap";
+import { recordGovMapResponses } from "./lib/govmap-responses";
+import type { GovMapResponse } from "./lib/govmap-responses";
 import "./govmap-frame.css";
 
 const token = import.meta.env.VITE_GOVMAP_TOKEN?.trim() || "e7ae87c1-eccb-4410-9c28-17994e01f72a";
@@ -22,6 +24,8 @@ let retrievedAt="";
 let activeApi:GovMapApi|undefined;
 let addressPoint:Point|undefined;
 let collectionVersion=0;
+const rawGovMapResponses:GovMapResponse[]=[];
+let lookupResponseCount=0;
 const publish=(data:PlotAnalysisData|null)=>{if(parent!==window)parent.postMessage({type:"plot-evidence",address,data},location.origin);};
 const text=(id:string,value:string)=>{document.getElementById(id)!.textContent=value;};
 addressElement.textContent=address;
@@ -31,6 +35,7 @@ new ResizeObserver(()=>{if(parent!==window)parent.postMessage({type:"govmap-size
 
 plotSelect.addEventListener("change",async()=>{
   const version=++collectionVersion;
+  rawGovMapResponses.splice(lookupResponseCount);
   publish(null);
   const selected=plotSelect.value===""?undefined:plotParcels[Number(plotSelect.value)];
   for(const id of ["plot-topography","plot-shape","plot-buildings","border-north","border-west","border-south","border-east"])text(id,"ממתין לאיסוף");
@@ -62,7 +67,7 @@ plotSelect.addEventListener("change",async()=>{
       borders.push({direction:direction as PlotBorder["direction"],description});
     }
     text("plot-evidence-details",JSON.stringify({geometryDiagnostics:spatial.geometryDiagnostics,layers:spatial.layers,neighbors:spatial.neighbors.map(n=>({...n,geometry:undefined})),warnings:spatial.warnings},null,2));
-    const data:PlotAnalysisData={address,retrievedAt,source:"GovMap PARCEL_ALL",gush:selected.block,parcel:selected.parcel,cadastralArea:selected.cadastralArea,registeredArea:null,topography:"",geometryShape:spatial.geometryAnalysis?.shape??"",borders,buildingsSummary:"",planningNotes:"",warnings:spatial.warnings,spatial};
+    const data:PlotAnalysisData={address,retrievedAt,source:"GovMap PARCEL_ALL",gush:selected.block,parcel:selected.parcel,cadastralArea:selected.cadastralArea,registeredArea:null,topography:"",geometryShape:spatial.geometryAnalysis?.shape??"",borders,buildingsSummary:"",planningNotes:"",warnings:spatial.warnings,spatial,rawGovMapResponses};
     plotWarning.textContent="האיסוף הסתיים. "+(spatial.warnings.length?"חלק מהנתונים חסרים או טעונים אימות; פירוט במקורות השכבות.":"הנתונים מוכנים לבדיקה.");
     publish(data);
   } catch {
@@ -90,7 +95,8 @@ async function initialize() {
   }
   let stage: "sdk" | "map" | "address" = "sdk";
   try {
-    const api = await loadGovMap();
+    const loaded = await loadGovMap();
+    const api = plotMode ? recordGovMapResponses(loaded, rawGovMapResponses) : loaded;
     activeApi=api;
     stage = "map";
     // Keep the iframe visible while waiting: onLoad requires a rendered map.
@@ -140,6 +146,7 @@ async function initialize() {
           })));
         }
         retrievedAt = new Date().toISOString();
+        lookupResponseCount = rawGovMapResponses.length;
         parcels = plotParcels;
         plotSelect.replaceChildren(new Option("בחרו חלקה", ""));
         plotParcels.forEach((parcel, index) => plotSelect.add(new Option(`גוש ${parcel.block}, חלקה ${parcel.parcel}`, String(index))));

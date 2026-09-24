@@ -1,6 +1,6 @@
 import { parseParcels, withTimeout } from "./govmap.ts";
 import type { GovMapApi, Point, Parcel } from "./govmap.ts";
-import { describeGeometry, parsePolygon, sharedBorders } from "./plot-geometry.ts";
+import { describeGeometry, parsePolygon, planarWkt, sharedBorders } from "./plot-geometry.ts";
 
 export type SpatialEvidence = {
   crs:"EPSG:2039";
@@ -48,10 +48,10 @@ async function parcelGeometry(api:GovMapApi, token:string, parcel:Parcel, diagno
   const found=selectParcelSearchResult(await withTimeout(api.search({searchText:`גוש ${parcel.block} חלקה ${parcel.parcel}`,apiKey:token,language:"he",maxResults:10,isAccurate:true})),parcel);
   const detail=object(body(await withTimeout(api.getSearchResultData(found,token))));
   const raw=detail.geom;
-  const format=typeof raw==="string" ? (/^[0-9a-f]+$/i.test(raw.trim())?"hex-encoded geometry":raw.trim().match(/^[A-Za-z]+/)?.[0]??"unknown text") : raw===null?"null":typeof raw;
+  const format=typeof raw==="string" ? (/^[0-9a-f]+$/i.test(raw.trim())?"hex-encoded geometry":raw.trim().match(/^[A-Za-z]+(?:\s+(?:ZM|Z|M)\b)?/i)?.[0]??"unknown text") : raw===null?"null":typeof raw;
   diagnose?.({searchResult:{id:found.id,type:found.type,layerId:found.layerId,objectId:found.objectId,text:found.text},format,rawGeometry:raw??null});
   if(typeof detail.geom!=="string")throw new Error("GovMap לא החזיר גיאומטריית חלקה.");
-  if(!/^(?:MULTI)?POLYGON\s*\(/i.test(detail.geom))throw new Error(`הוחזרה גיאומטריה מסוג ${format}, שאינה נתמכת כמסגרת חלקה. הערך המקורי נשמר בפירוט המקורות.`);
+  if(!/^(?:MULTI)?POLYGON\s*(?:ZM|Z|M)?\s*\(/i.test(detail.geom.trim()))throw new Error(`הוחזרה גיאומטריה מסוג ${format}, שאינה נתמכת כמסגרת חלקה. הערך המקורי נשמר בפירוט המקורות.`);
   return detail.geom;
 }
 
@@ -62,7 +62,9 @@ export async function collectPlotEvidence(api:GovMapApi, token:string, parcel:Pa
     progress("אוסף את גבול החלקה…");
     evidence.parcelGeometry=await parcelGeometry(api,token,parcel,data=>{evidence.geometryDiagnostics=data;});
     const polygon=parsePolygon(evidence.parcelGeometry);
+    const footprint=planarWkt(polygon);
     evidence.geometryAnalysis=describeGeometry(polygon);
+    if(/^(?:MULTI)?POLYGON\s+Z(?:M)?\b/i.test(evidence.parcelGeometry.trim()))evidence.warnings.push("בגיאומטריית הקדסטר קיימים ערכי Z, אך מקורם כגובה קרקע אינו מאומת. אין להסיק מהם גובה או שיפוע, ובפרט אין להסיק מישוריות מערכי אפס.");
     if(!active())return evidence;
     progress("אוסף שכבות תכנון, דרכים ובינוי…");
     evidence.layers=await Promise.all(["retzefMigrashim","ways","STREET_ALL","BUILDINGS"].map(async layer=>{
@@ -72,7 +74,7 @@ export async function collectPlotEvidence(api:GovMapApi, token:string, parcel:Pa
         const fields:Record<string,string>={};
         for(const raw of schema.slice(0,24)){const f=object(raw);if(typeof f.name==="string")fields[f.name]=String(f.displayName??f.name);}
         if(!Object.keys(fields).length)throw new Error("לא התקבלו שדות גלויים בשכבה.");
-        const response=object(body(await withTimeout(api.getLayerFeaturesByLocation({geometry:evidence.parcelGeometry!,radius:0,layers:[{name:layer,fields:Object.keys(fields)}]},token))));
+        const response=object(body(await withTimeout(api.getLayerFeaturesByLocation({geometry:footprint,radius:0,layers:[{name:layer,fields:Object.keys(fields)}]},token))));
         const layers=object(response.layers);
         const key=Object.keys(layers).find(k=>k.toLowerCase()===layer.toLowerCase());
         if(!key || !Array.isArray(layers[key]))throw new Error("השכבה לא נכללה בתשובת GovMap.");
@@ -84,7 +86,7 @@ export async function collectPlotEvidence(api:GovMapApi, token:string, parcel:Pa
     if(!active())return evidence;
     progress("בודק חלקות גובלות…");
     try {
-      const candidates=parseParcels(await withTimeout(api.intersectFeatures({geometry:evidence.parcelGeometry,layerName:"PARCEL_ALL",fields:["GUSH_NUM","PARCEL"],radius:0.2})))
+      const candidates=parseParcels(await withTimeout(api.intersectFeatures({geometry:footprint,layerName:"PARCEL_ALL",fields:["GUSH_NUM","PARCEL"],radius:0.2})))
         .filter(p=>p.block!==parcel.block || p.parcel!==parcel.parcel);
       if(candidates.length>12)evidence.warnings.push("ניתוח הגבולות הוגבל ל־12 חלקות סמוכות; רשימת הגבולות חלקית.");
       // SDK search shares a debouncer, so searches must be sequential.
@@ -92,12 +94,13 @@ export async function collectPlotEvidence(api:GovMapApi, token:string, parcel:Pa
         if(!active())return evidence;
         try {
           const geometry=await parcelGeometry(api,token,neighbor);
-          const borders=sharedBorders(polygon,parsePolygon(geometry));
+          const neighborPolygon=parsePolygon(geometry);
+          const borders=sharedBorders(polygon,neighborPolygon);
           if(borders.length) {
             // Designations must be queried on the neighbour, not the subject parcel.
             const layers=await Promise.all(evidence.layers.filter(l=>l.status==="received" && l.layer!=="BUILDINGS").map(async l=>{
               try {
-                const response=object(body(await withTimeout(api.getLayerFeaturesByLocation({geometry,radius:0,layers:[{name:l.layer,fields:Object.keys(l.fields)}]},token))));
+                const response=object(body(await withTimeout(api.getLayerFeaturesByLocation({geometry:planarWkt(neighborPolygon),radius:0,layers:[{name:l.layer,fields:Object.keys(l.fields)}]},token))));
                 const found=object(response.layers),key=Object.keys(found).find(k=>k.toLowerCase()===l.layer.toLowerCase());
                 if(!key || !Array.isArray(found[key]))throw new Error("השכבה לא הוחזרה");
                 return {...l,features:(found[key] as unknown[]).slice(0,20)};

@@ -111,6 +111,15 @@ unknown. The previous approximate ITM conversion and external elevation call
 have been removed. The AI receives full parcel WKT, shared borders, raw layer
 records and missing-data warnings. It must not infer slope from XY coordinates.
 
+The deployed response for block 6158, parcel 1291 returned `MULTIPOLYGON Z`.
+The parser accepts dimensional WKT (`Z`, `M`, and `ZM`), retains the original
+geometry as evidence, and uses its XY footprint for shape, shared borders,
+and spatial layer queries. All Z values in that observed response were zero;
+they do not establish measured elevation or flat terrain. Previously, rejecting
+the dimensional marker also prevented the subsequent layer and neighbour
+queries. Those queries still require verification on the approved domain after
+deploying the parser fix.
+
 ### Deploying the rebuilt workflow
 
 Run `node tools/sync_plot_prompt.mjs` before deploying the `appraisal` Edge
@@ -121,6 +130,20 @@ Apply `20260924090000_add_plot_description_section.sql` if it is not already
 applied, deploy the Edge Function, then deploy the web app. A web deployment
 alone does not update Supabase. Structured evidence is sent as `plotEvidence`,
 separately from the user's `additional` instructions and uploaded files.
+
+Advanced Settings → תיאור החלקה exposes the complete canonical agent Markdown.
+The saved personal version replaces the default, just as for the environment
+agent. Prompt synchronization generates both the web editor default and the
+Edge Function bundle. Plot evidence includes `rawGovMapResponses`: complete
+successful data responses, without request arguments or API credentials,
+alongside the calculated spatial summaries. Oversized evidence is rejected
+explicitly rather than silently truncated (one million character limit).
+
+The production backend was updated on 2026-09-24 (appraisal version 10), and
+the plot section database constraints were applied. A live Groq request from
+the deployed page succeeded and displayed a copyable report. That browser
+still held the older lookup results; deploy the current frontend and rerun
+lookup to verify the corrected geometry and expanded raw-response collection.
 
 Verify on the approved domain: exact parcel identity and area; polygon WKT;
 each neighbouring parcel's own planning-layer results; layer-permission errors;
