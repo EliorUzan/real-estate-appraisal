@@ -72,7 +72,7 @@ export async function handler(req: Request) {
       const {error}=await db.from("profiles").upsert({user_id:user.id,default_provider:b.provider},{onConflict:"user_id"}); failDb(error); return reply({ok:true});
     }
     if (b.action === "savePrompt") {
-      check(catalog.sections.some(s=>s.id===b.section),"Unknown section");
+        check(b.section === "plot_description" || catalog.sections.some(s=>s.id===b.section),"Unknown section");
       const content=field(b.content,50000,true);
       check(Number.isInteger(b.version) && b.version>=0,"Invalid version");
       const {error}=await db.rpc("poc_save_prompt",{p_user:user.id,p_section:b.section,p_content:content,p_expected:b.version});
@@ -85,7 +85,7 @@ export async function handler(req: Request) {
       failDb(error); return reply({jobs:data});
     }
     if (b.action !== "generate") throw new Problem(400,"Unknown action");
-    check(b.section==="environment_description","This section is not yet implemented in the desktop or web app.");
+      check(["environment_description","plot_description"].includes(b.section),"This section is not yet implemented in the desktop or web app.");
     const address=field(b.address,500,true), example=field(b.example??"",20000), additional=field(b.additional??"",20000);
     check(b.consent===true,"Confirm sending the supplied information to the selected AI provider.");
     check(/^[0-9a-f-]{36}$/.test(b.requestId),"Invalid request id");
@@ -117,7 +117,8 @@ export async function handler(req: Request) {
     check(setting?.configured,"Save an API key for this provider in Settings first.");
     const secret=await db.rpc("poc_provider_secret",{p_user:user.id,p_provider:b.provider});failDb(secret.error);
     check(secret.data,"No saved API key for this provider.");
-    const prompt=promptRow?.content ?? catalog.defaultPrompt;
+      const plotPrompt = `אתה עוזר לשמאי מקרקעין בישראל. כתוב רק את סעיף "תיאור החלקה" בעברית מקצועית, קצרה ומוכנה להעתקה. השתמש אך ורק בנתונים שסופקו תחת govmap_spatial_evidence ובנתוני החלקה. אין להמציא שטח רשום, טופוגרפיה, גבולות, שימושים, מבנים או ייעודים. נתוני GovMap הם נתוני עזר ויש לציין אי-ודאות מהותית תחת "הערה לשמאי". נתח את צורת הפוליגון ואת הגבולות רק כאשר geometryAnalysis או neighbors מאשרים אותם. אם אין נתון, השמט אותו.`;
+      const prompt=promptRow?.content ?? (b.section === "plot_description" ? plotPrompt : catalog.defaultPrompt);
     const input="כתובת הנכס: "+address+"\n\nדוגמת סגנון (לא עובדות על הנכס החדש):\n"+example+"\n\nבקשה נוספת:\n"+additional;
     const created=await db.from("generation_jobs").insert({
       workspace_id:b.workspace,owner_id:user.id,section_id:b.section,address,example_text:example,additional_request:additional,
@@ -145,4 +146,3 @@ export async function handler(req: Request) {
   }
 }
 if (import.meta.main) Deno.serve(handler);
-

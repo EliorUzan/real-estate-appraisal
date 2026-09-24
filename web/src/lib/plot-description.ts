@@ -1,4 +1,5 @@
 import { parseParcels } from "./govmap.ts";
+import type { SpatialEvidence } from "./plot-evidence.ts";
 
 export type PlotParcel = { block: string; parcel: string; cadastralArea: number | null };
 export type PlotBorder = { direction: "מצפון" | "ממערב" | "מדרום" | "ממזרח"; description: string };
@@ -16,6 +17,7 @@ export type PlotAnalysisData = {
   buildingsSummary: string;
   planningNotes: string;
   warnings: string[];
+  spatial?: SpatialEvidence;
 };
 
 export function parsePlotParcels(response: unknown): PlotParcel[] {
@@ -45,7 +47,8 @@ export function positiveArea(value: string): number | null {
 
 export function renderPlotDescription(data: PlotAnalysisData): string {
   const lines = ["7.1 תיאור החלקה:"];
-  const area = data.registeredArea === null ? "" : ` בשטח רשום של ${data.registeredArea.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} מ״ר`;
+  const formatArea=(n:number)=>n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const area = data.registeredArea !== null ? ` בשטח רשום של ${formatArea(data.registeredArea)} מ״ר` : data.cadastralArea!==null ? ` בשטח של ${formatArea(data.cadastralArea)} מ״ר לפי שכבת הקדסטר ב־GovMap` : "";
   lines.push(`חלקה ${data.parcel} בגוש ${data.gush}${area}.`);
   if (data.topography.trim()) lines.push(`הקרקע ${data.topography.trim().replace(/\.$/, "")}.`);
   if (data.geometryShape.trim()) lines.push(`הצורה הגיאומטרית של החלקה ${data.geometryShape.trim().replace(/\.$/, "")}.`);

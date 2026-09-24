@@ -5,6 +5,7 @@ import { api } from "./lib/edge";
 import { supabase } from "./lib/supabase";
 import catalog from "./catalog.json";
 import { GovMapPanel } from "./components/GovMapPanel";
+import type { PlotAnalysisData } from "./lib/plot-description";
 
 type Setting = { provider_id:string; model_id:string; configured:boolean; key_last4:string|null };
 type Prompt = { section_id:string; content:string; version:number };
@@ -106,6 +107,7 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
   const [exampleFiles,setExampleFiles]=useState<File[]>([]),[additionalFiles,setAdditionalFiles]=useState<File[]>([]),[consent,setConsent]=useState(true),[search,setSearch]=useState(false);
   const [busy,setBusy]=useState(false),[output,setOutput]=useState(""),[error,setError]=useState(""),[notice,setNotice]=useState("");
   const [mapAddress,setMapAddress]=useState("");
+  const [plotData,setPlotData]=useState<PlotAnalysisData|null>(null);
   const searchAvailable=["openai","gemini","anthropic"].includes(provider)||(provider==="groq"&&["openai/gpt-oss-20b","openai/gpt-oss-120b"].includes(model));
   const pdfAvailable=["openai","gemini","anthropic"].includes(provider);
   const configured=data.settings.find(s=>s.provider_id===provider)?.configured;
@@ -117,9 +119,18 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
     if(result.job.status!=="succeeded")throw new Error("הבקשה בטיפול. בדקו את ההיסטוריה.");
     setOutput(result.job.output_text??"");setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");
   }catch(e){setError(message(e));}finally{setBusy(false);}}
+  async function generatePlotWithAi(){
+    if(!plotData || !configured || !model.trim())return;
+    setBusy(true);setError("");setNotice("");setOutput("");
+    try {
+      const result=await api<{job:Job}>("generate",{requestId:crypto.randomUUID(),workspace,section:"plot_description",address:plotData.address,example:"",additional:JSON.stringify({govmap_spatial_evidence:plotData},null,2),provider,model,consent,search:false,files:[]});
+      if(result.job.status!=="succeeded")throw new Error("הבקשה בטיפול. בדקו את ההיסטוריה.");
+      setOutput(result.job.output_text??"");setNotice("הניסוח נוצר ונשמר בהיסטוריית הצוות.");
+    } catch(e){setError(message(e));} finally {setBusy(false);}
+  }
   return <><div className="title-row"><div><p className="eyebrow">{section==="plot_description"?"איסוף נתונים מ־GovMap":"כתיבה שמאית בעזרת AI"}</p><h1>בקשה חדשה</h1></div>{section!=="plot_description"&&<span className="shared-badge">היסטוריה משותפת לצוות</span>}</div>
     <form onSubmit={section==="plot_description"?e=>{e.preventDefault();setMapAddress(address.trim());}:generate}><fieldset disabled={busy} className="request-fields">
-      <label>פרק הדוח<select value={section} onChange={e=>{setSection(e.target.value);setMapAddress("");setOutput("");}}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}</select></label>
+      <label>פרק הדוח<select value={section} onChange={e=>{setSection(e.target.value);setMapAddress("");setOutput("");setPlotData(null);}}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}</select></label>
       {section!=="plot_description"&&data.members.length>1&&<label>סביבת עבודה<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{data.members.map(m=><option key={m.workspace_id}>{m.workspace_id}</option>)}</select></label>}
       <label>כתובת הנכס<input value={address} onChange={e=>setAddress(e.target.value)} required maxLength={500} placeholder="לדוגמה: התחייה 2, חדרה"/></label>
       {section!=="plot_description"&&<>
@@ -135,7 +146,8 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
       </>}
     </fieldset><div className="actions">{section==="plot_description"?<button disabled={!address.trim()}>איסוף נתוני חלקה והכנת טיוטה</button>:<><button disabled={busy||!configured||!model.trim()}>{busy?"יוצר טיוטה… נא להמתין":"צור"}</button><button type="button" className="secondary" disabled={!address.trim()} onClick={()=>setMapAddress(address.trim())}>הצג מפה לכתובת</button></>}</div></form>
     {busy&&<p role="status">הבקשה נשלחה לעיבוד. אין לסגור את החלון עד לקבלת תשובה.</p>}{error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status" className="success">{notice}</p>}
-    {output&&<Report text={output}/>}{mapAddress&&<GovMapPanel address={mapAddress} mode={section==="plot_description"?"plot":"map"}/>}</>;
+    {section==="plot_description"&&mapAddress&&<div className="actions"><button type="button" disabled={!plotData||busy||!configured} onClick={generatePlotWithAi}>{busy?"יוצר ניסוח…":"יצירת ניסוח בעזרת AI"}</button>{!configured&&<span className="muted">להפעלת AI יש להגדיר מפתח בספק שנבחר בהגדרות.</span>}</div>}
+    {output&&<Report text={output}/>} {mapAddress&&<GovMapPanel address={mapAddress} mode={section==="plot_description"?"plot":"map"} onPlotData={setPlotData}/>}</>;
 }
 function Report({text}:{text:string}){
   const [copied,setCopied]=useState(false),[error,setError]=useState("");

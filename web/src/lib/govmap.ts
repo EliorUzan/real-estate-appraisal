@@ -84,7 +84,11 @@ export interface GovMapApi {
   geocodeType: { FullResult: number; AccuracyOnly: number };
   createMap(id: string, settings: Record<string, unknown>): PromiseLike<void>;
   geocode(params: { keyword: string; type: number }): PromiseLike<unknown>;
-  intersectFeatures(params: { geometry: string; layerName: string; fields: string[] }): PromiseLike<unknown>;
+  intersectFeatures(params: { geometry: string; layerName: string; fields: string[]; radius?: number }): PromiseLike<unknown>;
+  search(params: { searchText:string; apiKey:string; language:"he"; maxResults:number; isAccurate:boolean }): PromiseLike<unknown>;
+  getSearchResultData(result: Record<string,unknown>, token:string): PromiseLike<unknown>;
+  getLayerFilterFields(layer:string, token:string, language:"he"): PromiseLike<unknown>;
+  getLayerFeaturesByLocation(params:{geometry:string; radius:number; layers:{name:string;fields:string[]}[]}, token:string): PromiseLike<unknown>;
   zoomToXY(params: { x: number; y: number; level: number; marker: boolean }): void;
 }
 

@@ -99,10 +99,12 @@ defaults. The browser renders section 7.1 directly, without an AI provider,
 and offers a structured JSON download for a future agent pipeline. This local
 draft is not stored in team history.
 
-The official [spatial-analysis response](https://api.govmap.gov.il/docs/standalone/get-layer-features-by-location)
-contains attributes but no parcel polygon. The current integration therefore
-does not infer shape, boundary directions, neighboring land use, building count,
-topography, or subdivision access from a point query. Those need a verified
-polygon/height source and spatial validation before automation. The plan's
-`LEGAL_AREA`, `BUILDINGS`, and `retzefMigrashim` assumptions must be confirmed
-against actual layer schemas before using them as report facts.
+The plot mode now requests the selected parcel through GovMap search and
+`getSearchResultData`, then validates its WKT geometry before calculating a
+minimum-oriented bounding-box shape and shared-edge neighbours. It also probes
+the configured planning, road, and building layers and preserves their raw
+attributes as evidence. These records do not prove land use, street names,
+building counts, or access by themselves. No elevation or slope source is
+currently available in this GovMap path, so topography remains an explicit
+unknown. The deterministic draft omits unknown facts; the optional AI request
+receives the same evidence and is instructed to do the same.
