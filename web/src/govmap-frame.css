@@ -28,5 +28,12 @@ button:focus-visible { outline: 3px solid #1f7a68; outline-offset: 2px; }
 #plot-form legend { font-weight: bold; }
 .plot-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 #plot-warning { color: #835c0f !important; }
+.plot-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin:16px 0; }
+.plot-facts > div { display:block; padding:10px; background:white; border:1px solid #d7e0e2; border-radius:6px; }
+.plot-facts dd { margin-top:8px; line-height:1.6; }
+#plot-section select, #plot-coordinates { width:100%; padding:10px; margin:8px 0; font:inherit; border:1px solid #9fb2b8; border-radius:6px; }
+#plot-section details { margin:12px 0; }
+#plot-evidence-details { white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; direction:ltr; text-align:left; }
+@media(max-width:550px){.plot-facts{grid-template-columns:1fr;}}
 #plot-output { margin: 6px 0 8px; line-height: 1.6; resize: vertical; }
 #plot-output-label[hidden], #plot-copy[hidden] { display: none; }

@@ -1,136 +1,73 @@
 import { CADASTRAL_LAYERS, loadGovMap, parseLocation, parseParcels, withTimeout } from "./lib/govmap";
-import { parsePlotParcels, positiveArea, renderPlotDescription } from "./lib/plot-description";
+import { parsePlotParcels } from "./lib/plot-description";
 import type { PlotAnalysisData, PlotBorder, PlotParcel } from "./lib/plot-description";
-import { collectPlotEvidence } from "./lib/plot-evidence";
-import type { SpatialEvidence } from "./lib/plot-evidence";
+import { collectPlotEvidence, layerFacts } from "./lib/plot-evidence";
 import type { GovMapApi, Point } from "./lib/govmap";
 import "./govmap-frame.css";
 
-// GovMap issues a public browser token restricted to the approved hostnames.
-// An optional build-time override supports a replacement token without a code edit.
 const token = import.meta.env.VITE_GOVMAP_TOKEN?.trim() || "e7ae87c1-eccb-4410-9c28-17994e01f72a";
-const params = new URLSearchParams(location.hash.slice(1));
-const address = params.get("address")?.trim() ?? "";
-const plotMode = params.get("mode") === "plot";
-const addressElement = document.getElementById("requested-address")!;
-const parcelElement = document.getElementById("parcels")!;
-const status = document.getElementById("map-status")!;
-const shell = document.getElementById("map-shell")!;
-const retry = document.getElementById("retry")!;
-const plotSection = document.getElementById("plot-section")!;
-const plotForm = document.getElementById("plot-form") as HTMLFormElement;
-const plotSelect = document.getElementById("plot-parcel") as HTMLSelectElement;
-const plotArea = document.getElementById("plot-area")!;
-const plotWarning = document.getElementById("plot-warning")!;
-const plotOutput = document.getElementById("plot-output") as HTMLTextAreaElement;
-const plotOutputLabel = document.getElementById("plot-output-label")!;
-const plotCopy = document.getElementById("plot-copy")!;
-let plotParcels: PlotParcel[] = [];
-let retrievedAt = "";
+const params=new URLSearchParams(location.hash.slice(1));
+const address=params.get("address")?.trim()??"";
+const plotMode=params.get("mode")==="plot";
+const addressElement=document.getElementById("requested-address")!;
+const parcelElement=document.getElementById("parcels")!;
+const status=document.getElementById("map-status")!;
+const shell=document.getElementById("map-shell")!;
+const retry=document.getElementById("retry")!;
+const plotSection=document.getElementById("plot-section")!;
+const plotSelect=document.getElementById("plot-parcel") as HTMLSelectElement;
+const plotWarning=document.getElementById("plot-warning")!;
+let plotParcels:PlotParcel[]=[];
+let retrievedAt="";
 let activeApi:GovMapApi|undefined;
 let addressPoint:Point|undefined;
-let spatial:SpatialEvidence|undefined;
 let collectionVersion=0;
-let collecting=false;
-const publish=(data:PlotAnalysisData|null) => { if(parent!==window)parent.postMessage({type:"plot-evidence",address,data},location.origin); };
-addressElement.textContent = address;
-retry.addEventListener("click", () => location.reload());
-plotSection.hidden = !plotMode;
+const publish=(data:PlotAnalysisData|null)=>{if(parent!==window)parent.postMessage({type:"plot-evidence",address,data},location.origin);};
+const text=(id:string,value:string)=>{document.getElementById(id)!.textContent=value;};
+addressElement.textContent=address;
+plotSection.hidden=!plotMode;
+retry.addEventListener("click",()=>location.reload());
+new ResizeObserver(()=>{if(parent!==window)parent.postMessage({type:"govmap-size",address,height:document.querySelector("main")!.getBoundingClientRect().height+16},location.origin);}).observe(document.querySelector("main")!);
 
-function field(id: string): string {
-  return (document.getElementById(id) as HTMLInputElement).value.trim();
-}
-
-function collectPlotData(): PlotAnalysisData | null {
-  const selected = plotSelect.value === "" ? undefined : plotParcels[Number(plotSelect.value)];
-  if (!selected) {
-    plotWarning.textContent = "יש לבחור גוש וחלקה לפני יצירת טיוטה.";
-    return null;
-  }
-  const areaInput = field("registered-area");
-  const registeredArea = positiveArea(areaInput);
-  if (areaInput && registeredArea === null) {
-    plotWarning.textContent = "השטח הרשום חייב להיות מספר חיובי.";
-    return null;
-  }
-  const borders: PlotBorder[] = [
-    { direction: "מצפון", description: field("border-north") },
-    { direction: "ממערב", description: field("border-west") },
-    { direction: "מדרום", description: field("border-south") },
-    { direction: "ממזרח", description: field("border-east") },
-  ];
-  const warnings = ["נתוני GovMap אינם אסמכתא לשטח הרשום או לזכויות; יש לאמת מול נסח הרישום."];
-  if (registeredArea === null) warnings.push("השטח מוצג כנתון GovMap; השטח הרשום לא אומת מול נסח.");
-  if (!field("topography") && !spatial?.topography) warnings.push("הטופוגרפיה לא אומתה.");
-  if (!field("geometry-shape")) warnings.push("צורת החלקה לא אומתה.");
-  if (borders.some(border => !border.description)) warnings.push("לא אומתו כל ארבעת גבולות החלקה.");
-  if (!field("buildings")) warnings.push("הבינוי הקיים לא אומת; אין להסיק שחלקה ללא בינוי.");
-  return {
-    address, retrievedAt, source: "GovMap PARCEL_ALL", gush: selected.block, parcel: selected.parcel,
-    cadastralArea: selected.cadastralArea, registeredArea,
-    topography: field("topography") || spatial?.topography?.classification || "",
-    geometryShape: field("geometry-shape"), borders, buildingsSummary: field("buildings"),
-    planningNotes: field("planning-notes"), warnings:[...warnings,...(spatial?.warnings??[])], spatial,
-  };
-}
-
-plotSelect.addEventListener("change", async () => {
+plotSelect.addEventListener("change",async()=>{
   const version=++collectionVersion;
-  spatial=undefined;
-  collecting=false;
   publish(null);
-  for(const id of ["registered-area","topography","geometry-shape","border-north","border-west","border-south","border-east","buildings","planning-notes"])(document.getElementById(id) as HTMLInputElement).value="";
-  const selected = plotSelect.value === "" ? undefined : plotParcels[Number(plotSelect.value)];
-  plotArea.textContent = selected
-    ? selected.cadastralArea === null ? "שטח קדסטרי משכבת GovMap: לא זמין."
-      : `שטח קדסטרי משכבת GovMap: ${selected.cadastralArea.toLocaleString("en-US")} מ״ר (לבדיקה מול נסח).`
-    : "";
-  plotOutputLabel.hidden = true;
-  plotCopy.hidden = true;
-  if(!selected || !activeApi || !addressPoint)return;
-  collecting=true;
-  const result=await collectPlotEvidence(activeApi,token,selected,addressPoint,message=>{if(version===collectionVersion)plotWarning.textContent=message;},()=>version===collectionVersion);
-  if(version!==collectionVersion)return;
-  spatial=result;
-  collecting=false;
-  if(spatial.topography && !field("topography")) {
-    const details=spatial.topography;
-    (document.getElementById("topography") as HTMLInputElement).value=`${details.classification} (שיפוע ${details.slopePercentage}%, הפרש גובה ${details.elevationDelta} מ׳)`;
-  }
-  if(spatial.geometryAnalysis && !field("geometry-shape"))(document.getElementById("geometry-shape") as HTMLInputElement).value=spatial.geometryAnalysis.shape;
-  const directions={"מצפון":"border-north","ממערב":"border-west","מדרום":"border-south","ממזרח":"border-east"};
-  for(const [direction,id] of Object.entries(directions)) {
-    const neighbors=spatial.neighbors.filter(n=>n.borders.some(b=>b.direction===direction));
-    if(!field(id))(document.getElementById(id) as HTMLInputElement).value=neighbors.map(n=>`חלקה ${n.parcel} בגוש ${n.gush}`).join("; ");
-  }
-  const data=collectPlotData();
-  plotWarning.textContent=data?.warnings.join(" ")??"";
-  publish(data);
-});
-plotForm.addEventListener("input", () => { plotOutputLabel.hidden = true; plotCopy.hidden = true; if(!collecting && plotSelect.value!=="")publish(collectPlotData()); });
-plotForm.addEventListener("submit", event => {
-  event.preventDefault();
-  const data = collectPlotData();
-  if (!data) return;
-  plotOutput.value = renderPlotDescription(data);
-  plotWarning.textContent = data.warnings.join(" ");
-  plotOutputLabel.hidden = false;
-  plotCopy.hidden = false;
-});
-document.getElementById("plot-json")!.addEventListener("click", () => {
-  const data = collectPlotData();
-  if (!data) return;
-  plotWarning.textContent = data.warnings.join(" ");
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `plot-description-${data.gush}-${data.parcel}.json`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-});
-plotCopy.addEventListener("click", async () => {
-  try { await navigator.clipboard.writeText(plotOutput.value); plotCopy.textContent = "הועתק"; }
-  catch { plotWarning.textContent = "לא ניתן להעתיק אוטומטית. סמנו את הטקסט והעתיקו."; }
+  const selected=plotSelect.value===""?undefined:plotParcels[Number(plotSelect.value)];
+  for(const id of ["plot-topography","plot-shape","plot-buildings","border-north","border-west","border-south","border-east"])text(id,"ממתין לאיסוף");
+  (document.getElementById("plot-coordinates") as HTMLTextAreaElement).value="";
+  text("plot-evidence-details","");
+  text("plot-gush",selected?.block??"לא נבחרה חלקה");
+  text("plot-number",selected?.parcel??"לא נבחרה חלקה");
+  text("plot-area",selected?.cadastralArea?.toLocaleString("he-IL")??"לא הוחזר שטח");
+  if(!selected||!activeApi||!addressPoint)return;
+  // Serial SDK searches cannot overlap when the user switches parcels.
+  plotSelect.disabled=true;
+  try {
+    const spatial=await collectPlotEvidence(activeApi,token,selected,addressPoint,message=>{if(version===collectionVersion)plotWarning.textContent=message;},()=>version===collectionVersion);
+    if(version!==collectionVersion)return;
+    text("plot-topography","לא הוחזרו נתוני גובה או שיפוע מ־GovMap");
+    text("plot-shape",spatial.geometryAnalysis?.shape??"לא ניתן לנתח את הצורה מהנתונים שהוחזרו");
+    (document.getElementById("plot-coordinates") as HTMLTextAreaElement).value=spatial.parcelGeometry??"לא הוחזר גבול חלקה";
+    const buildings=spatial.layers.find(l=>l.layer==="BUILDINGS");
+    text("plot-buildings",buildings?.status==="received" ? buildings.features.length+" רשומות בינוי חופפות; השימוש ומספר המבנים טעונים אימות" : "לא הוחזרו נתוני בינוי");
+    const directions={"מצפון":"border-north","ממערב":"border-west","מדרום":"border-south","ממזרח":"border-east"};
+    const borders:PlotBorder[]=[];
+    for(const [direction,id] of Object.entries(directions)) {
+      const neighbors=spatial.neighbors.filter(n=>n.borders.some(b=>b.direction===direction));
+      const description=neighbors.map(n=>{
+        const facts=n.layers.flatMap(layerFacts);
+        return "חלקה "+n.parcel+" בגוש "+n.gush+(facts.length?" — "+facts.join("; "):" — ייעוד לא הוחזר");
+      }).join(" | ");
+      text(id,description||"לא אומת גבול בכיוון זה");
+      borders.push({direction:direction as PlotBorder["direction"],description});
+    }
+    text("plot-evidence-details",JSON.stringify({layers:spatial.layers,neighbors:spatial.neighbors.map(n=>({...n,geometry:undefined})),warnings:spatial.warnings},null,2));
+    const data:PlotAnalysisData={address,retrievedAt,source:"GovMap PARCEL_ALL",gush:selected.block,parcel:selected.parcel,cadastralArea:selected.cadastralArea,registeredArea:null,topography:"",geometryShape:spatial.geometryAnalysis?.shape??"",borders,buildingsSummary:"",planningNotes:"",warnings:spatial.warnings,spatial};
+    plotWarning.textContent="האיסוף הסתיים. "+(spatial.warnings.length?"חלק מהנתונים חסרים או טעונים אימות; פירוט במקורות השכבות.":"הנתונים מוכנים לבדיקה.");
+    publish(data);
+  } catch {
+    plotWarning.textContent="לא ניתן להשלים את איסוף הנתונים. בחרו שוב את החלקה לניסיון נוסף.";
+  } finally {if(version===collectionVersion)plotSelect.disabled=false;}
 });
 
 function fail(text: string) {
@@ -139,6 +76,11 @@ function fail(text: string) {
   retry.hidden = false;
   parcelElement.textContent = "לא זמין";
   shell.setAttribute("aria-busy", "false");
+  if(plotMode) {
+    for(const id of ["plot-gush","plot-number","plot-area","plot-topography","plot-shape","plot-buildings","border-north","border-west","border-south","border-east"])document.getElementById(id)!.textContent="לא זמין — האיתור לא הושלם";
+    plotWarning.textContent="לא הוחזרו נתוני חלקה. GovMap מחייב דומיין מורשה; ניתן לנסות שוב לאחר בדיקת הגישה.";
+    publish(null);
+  }
 }
 
 async function initialize() {
@@ -201,12 +143,12 @@ async function initialize() {
         parcels = plotParcels;
         plotSelect.replaceChildren(new Option("בחרו חלקה", ""));
         plotParcels.forEach((parcel, index) => plotSelect.add(new Option(`גוש ${parcel.block}, חלקה ${parcel.parcel}`, String(index))));
-        if (plotParcels.length === 1) { plotSelect.value = "0"; plotSelect.dispatchEvent(new Event("change")); }
         plotWarning.textContent = plotParcels.length === 0
           ? "לא נמצאה חלקה בכתובת זו; אין אפשרות להכין טיוטה עד לאימות המיקום."
           : plotParcels.length > 1
             ? "הכתובת חופפת לכמה חלקות. יש לבחור ולאמת את החלקה הנכונה."
-            : "GovMap מספק כאן זיהוי ושטח קדסטרי ככל שזמין. יתר השדות דורשים אימות נפרד.";
+            : "אוסף את פרטי החלקה…";
+        if (plotParcels.length === 1) { plotSelect.value = "0"; plotSelect.dispatchEvent(new Event("change")); }
       } else {
         parcels = parseParcels(await withTimeout(api.intersectFeatures({
           ...query, fields: ["GUSH_NUM", "PARCEL"],

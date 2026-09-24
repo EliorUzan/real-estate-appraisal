@@ -6,6 +6,8 @@
   "packageManager": "npm@10.9.2",
   "engines": { "node": ">=22" },
   "scripts": {
+    "predev": "node ../tools/sync_plot_prompt.mjs",
+    "prebuild": "node ../tools/sync_plot_prompt.mjs",
     "dev": "vite --host 127.0.0.1 --port 5175",
     "build": "tsc -b && vite build",
     "lint": "eslint . --max-warnings=0",

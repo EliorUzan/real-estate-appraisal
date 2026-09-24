@@ -5,8 +5,12 @@ export type Direction = "מצפון" | "ממערב" | "מדרום" | "ממזרח
 const cross = (o: XY, a: XY, b: XY) => (a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
 
 export function parsePolygon(wkt: string): Polygon {
-  const normalized=wkt.trim();
-  if (!/^(?:MULTI)?POLYGON\s*\(/i.test(normalized)) throw new Error("נדרש פוליגון חלקה; גיאומטריה אחרת לא נותחה.");
+  let normalized=wkt.trim();
+  if(/^MULTIPOLYGON/i.test(normalized)) {
+    if(/\)\s*\)\s*,\s*\(\s*\(/.test(normalized))throw new Error("לחלקה כמה מתחמים נפרדים; נדרש ניתוח גיאומטרי נפרד לכל מתחם.");
+    normalized=normalized.replace(/^MULTIPOLYGON\s*\(/i,"POLYGON").replace(/\)\s*$/,"");
+  }
+  if (!/^POLYGON\s*\(\s*\([^()]+\)(\s*,\s*\([^()]+\))*\s*\)$/i.test(normalized)) throw new Error("נדרש פוליגון חלקה תקין; גיאומטריה אחרת לא נותחה.");
   const rings=[...normalized.matchAll(/\(([^()]+)\)/g)].map(match => match[1].split(",").map(pair => {
     const values = pair.trim().split(/\s+/).map(Number);
     if (values.length !== 2 || !values.every(Number.isFinite)) throw new Error("קואורדינטות חלקה לא תקינות.");
@@ -37,12 +41,7 @@ export function describeGeometry(polygon: Polygon) {
     if(width*height<boxArea){boxArea=width*height;aspect=Math.min(width,height)/Math.max(width,height);}
   }
   const coverage=graphicArea/boxArea;
-  const numVertices=convex.length;
-  const shape = polygon.length===1 && numVertices<=6
-    ? coverage>=0.88 ? (aspect>=0.88?"מעין רבועה":"מעין מלבנית")
-      : coverage>=0.72 ? "טרפזית"
-      : "רב־צלעית בלתי סדירה"
-    : "רב־צלעית בלתי סדירה";
+  const shape = polygon.length===1 && coverage>=0.95 ? (aspect>=0.9?"מעין רבועה":"מעין מלבנית") : "רב־צלעית בלתי סדירה";
   return { graphicArea, boxCoverage:coverage, shape, method:"minimum-oriented-bounding-box", crs:"EPSG:2039" as const };
 }
 
@@ -50,7 +49,7 @@ export function describeGeometry(polygon: Polygon) {
 // Tolerance accommodates small discrepancies in the cadastral outlines.
 export function sharedBorders(target: Polygon, neighbor: Polygon): {direction:Direction; meters:number}[] {
   const ring=target[0];
-  const center:XY=[ring.slice(0,-1).reduce((s,p)=>s+p[0],0)/(ring.length-1),ring.slice(0,-1).reduce((s,p)=>s+p[1],0)/(ring.length-1)];
+  const orientation=Math.sign(ring.slice(1).reduce((sum,p,i)=>sum+cross(ring[0],ring[i],p),0));
   const lengths=new Map<Direction,number>();
   for(let i=0;i<ring.length-1;i++) {
     const a=ring[i],b=ring[i+1], dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);
@@ -67,7 +66,9 @@ export function sharedBorders(target: Polygon, neighbor: Polygon): {direction:Di
     let end=0,shared=0;
     for(const interval of intervals){shared+=Math.max(0,interval[1]-Math.max(interval[0],end));end=Math.max(end,interval[1]);}
     if(shared<1)continue;
-    const x=(a[0]+b[0])/2-center[0],y=(a[1]+b[1])/2-center[1];
+    // Outward edge normals remain meaningful for concave parcels, unlike a
+    // vector from the average vertex (which can lie outside the parcel).
+    const x=dy*orientation,y=-dx*orientation;
     const direction:Direction=Math.abs(y)>=Math.abs(x)?(y>=0?"מצפון":"מדרום"):(x>=0?"ממזרח":"ממערב");
     lengths.set(direction,(lengths.get(direction)??0)+shared);
   }

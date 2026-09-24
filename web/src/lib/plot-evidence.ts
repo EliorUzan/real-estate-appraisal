@@ -1,20 +1,35 @@
 import { parseParcels, withTimeout } from "./govmap.ts";
 import type { GovMapApi, Point, Parcel } from "./govmap.ts";
 import { describeGeometry, parsePolygon, sharedBorders } from "./plot-geometry.ts";
-import { calculateTopography, type TopographyResult } from "./plot-topography.ts";
 
 export type SpatialEvidence = {
   crs:"EPSG:2039";
   addressPoint:{x:number;y:number};
   parcelGeometry:string|null;
   geometryAnalysis:ReturnType<typeof describeGeometry>|null;
-  neighbors:{gush:string;parcel:string;borders:ReturnType<typeof sharedBorders>}[];
+  neighbors:{gush:string;parcel:string;geometry:string;borders:ReturnType<typeof sharedBorders>;layers:SpatialEvidence["layers"]}[];
   layers:{layer:string;status:"received"|"unavailable";fields:Record<string,string>;features:unknown[];error?:string}[];
-  topography:TopographyResult|null;
+  topography:null;
   warnings:string[];
 };
 const object=(value:unknown):Record<string,unknown> => value!==null && typeof value==="object" && !Array.isArray(value)?value as Record<string,unknown>:{};
 const body=(value:unknown) => object(value).data??value;
+
+// Preserve the field's meaning and source. Numeric codes are not translated
+// into land-use names without a documented code dictionary.
+export function layerFacts(layer:SpatialEvidence["layers"][number]):string[] {
+  if(layer.status!=="received")return [];
+  const facts=new Set<string>();
+  for(const feature of layer.features) {
+    const attributes=object(object(feature).attributes);
+    for(const [key,label] of Object.entries(layer.fields)) {
+      if(!/ייעוד|יעוד|שימוש|רחוב|land.?use|designation|street/i.test(key+" "+label))continue;
+      const value=attributes[key];
+      if(typeof value==="string" && value.trim() && !/^\d+$/.test(value.trim()))facts.add(`${label}: ${value} (${layer.layer}, חופף לחלקה)`);
+    }
+  }
+  return [...facts];
+}
 
 export function selectParcelSearchResult(response:unknown, parcel:Parcel): Record<string,unknown> {
   const results=object(body(response)).results;
@@ -25,13 +40,14 @@ export function selectParcelSearchResult(response:unknown, parcel:Parcel): Recor
     const text=[r.text,r.originalText,r.data,r.header,r.title].filter(value=>typeof value==="string").join(" ");
     return new RegExp(`(^|\\D)${escaped(block)}(\\D|$)`).test(text) && new RegExp(`(^|\\D)${escaped(lot)}(\\D|$)`).test(text);
   });
-  return matches[0] ?? object(results[0]);
+  if(matches.length!==1)throw new Error("לא נמצאה התאמה יחידה לגוש והחלקה שנבחרו; לא נעשה שימוש בתוצאה אחרת.");
+  return matches[0];
 }
 async function parcelGeometry(api:GovMapApi, token:string, parcel:Parcel):Promise<string> {
   const found=selectParcelSearchResult(await withTimeout(api.search({searchText:`גוש ${parcel.block} חלקה ${parcel.parcel}`,apiKey:token,language:"he",maxResults:10,isAccurate:true})),parcel);
   const detail=object(body(await withTimeout(api.getSearchResultData(found,token))));
   if(typeof detail.geom!=="string")throw new Error("GovMap לא החזיר גיאומטריית חלקה.");
-  parsePolygon(detail.geom); // Reject non-polygon and mismatched coordinate systems.
+  if(!/^(?:MULTI)?POLYGON\s*\(/i.test(detail.geom))throw new Error("GovMap לא החזיר פוליגון חלקה.");
   return detail.geom;
 }
 
@@ -43,8 +59,6 @@ export async function collectPlotEvidence(api:GovMapApi, token:string, parcel:Pa
     evidence.parcelGeometry=await parcelGeometry(api,token,parcel);
     const polygon=parsePolygon(evidence.parcelGeometry);
     evidence.geometryAnalysis=describeGeometry(polygon);
-    try { evidence.topography=await withTimeout(calculateTopography(polygon), 10000); }
-    catch { evidence.topography=null; }
     if(!active())return evidence;
     progress("אוסף שכבות תכנון, דרכים ובינוי…");
     evidence.layers=await Promise.all(["retzefMigrashim","ways","STREET_ALL","BUILDINGS"].map(async layer=>{
@@ -73,8 +87,20 @@ export async function collectPlotEvidence(api:GovMapApi, token:string, parcel:Pa
       for(const neighbor of candidates.slice(0,12)) {
         if(!active())return evidence;
         try {
-          const borders=sharedBorders(polygon,parsePolygon(await parcelGeometry(api,token,neighbor)));
-          if(borders.length)evidence.neighbors.push({gush:neighbor.block,parcel:neighbor.parcel,borders});
+          const geometry=await parcelGeometry(api,token,neighbor);
+          const borders=sharedBorders(polygon,parsePolygon(geometry));
+          if(borders.length) {
+            // Designations must be queried on the neighbour, not the subject parcel.
+            const layers=await Promise.all(evidence.layers.filter(l=>l.status==="received" && l.layer!=="BUILDINGS").map(async l=>{
+              try {
+                const response=object(body(await withTimeout(api.getLayerFeaturesByLocation({geometry,radius:0,layers:[{name:l.layer,fields:Object.keys(l.fields)}]},token))));
+                const found=object(response.layers),key=Object.keys(found).find(k=>k.toLowerCase()===l.layer.toLowerCase());
+                if(!key || !Array.isArray(found[key]))throw new Error("השכבה לא הוחזרה");
+                return {...l,features:(found[key] as unknown[]).slice(0,20)};
+              } catch {return {...l,status:"unavailable" as const,features:[],error:"נתוני השכן לא הוחזרו"};}
+            }));
+            evidence.neighbors.push({gush:neighbor.block,parcel:neighbor.parcel,geometry,borders,layers});
+          }
         } catch { evidence.warnings.push(`לא אומת גבול עם גוש ${neighbor.block}, חלקה ${neighbor.parcel}.`); }
       }
     } catch { evidence.warnings.push("לא ניתן היה לשלוף את החלקות הגובלות."); }

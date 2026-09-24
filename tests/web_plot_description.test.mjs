@@ -1,8 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { parsePlotParcels, positiveArea, renderPlotDescription } from "../web/src/lib/plot-description.ts";
-import { selectParcelSearchResult } from "../web/src/lib/plot-evidence.ts";
-import { itmToWgs84 } from "../web/src/lib/plot-topography.ts";
+import { selectParcelSearchResult, collectPlotEvidence, layerFacts } from "../web/src/lib/plot-evidence.ts";
+import { parsePolygon, describeGeometry } from "../web/src/lib/plot-geometry.ts";
+
+test("the deployed plot agent contains the complete canonical Markdown",()=>{
+  const canonical=readFileSync(new URL("../src/appraisal_assistant/agents/prompts/plot_description.md",import.meta.url),"utf8");
+  const bundled=JSON.parse(readFileSync(new URL("../supabase/functions/appraisal/plot-prompt.json",import.meta.url),"utf8"));
+  assert.equal(bundled.content,canonical.replace(/\r\n/g,"\n"));
+});
 
 test("collects cadastral area only when GovMap returns a valid value", () => {
   assert.deepEqual(parsePlotParcels({ status: 0, errorCode: 0, data: [
@@ -46,8 +53,49 @@ test("GovMap parcel geometry search accepts numeric or missing result classifica
   assert.throws(() => selectParcelSearchResult({ data: { results: [] } }, parcel), /לא התקבלו/);
 });
 
-test("ITM elevation sampling conversion returns finite WGS84 coordinates", () => {
-  const point = itmToWgs84(200000, 600000);
-  assert.ok(Number.isFinite(point.lat));
-  assert.ok(Number.isFinite(point.lon));
+test("parcel geometry never falls back to unrelated or ambiguous results", () => {
+  const parcel={block:"11140",parcel:"91"};
+  assert.throws(()=>selectParcelSearchResult({results:[{text:"גוש 11140 חלקה 92"}]},parcel));
+  assert.throws(()=>selectParcelSearchResult({results:[{text:"11140 / 91"},{text:"11140 / 91"}]},parcel));
+});
+
+test("geometry rejects malformed rings and separate multipolygon components",()=>{
+  assert.throws(()=>parsePolygon("POLYGON EMPTY"));
+  assert.throws(()=>parsePolygon("POLYGON ((200000 700000,200001 700000,200001 700001))"));
+  assert.throws(()=>parsePolygon("MULTIPOLYGON (((200000 700000,200010 700000,200010 700010,200000 700000)),((200020 700020,200030 700020,200030 700030,200020 700020)))"));
+  const polygon=parsePolygon("MULTIPOLYGON (((200000 700000,200020 700000,200020 700010,200000 700010,200000 700000)))");
+  assert.equal(describeGeometry(polygon).graphicArea,200);
+});
+
+test("evidence retains coordinates, queries neighbour designations and leaves missing terrain unknown",async()=>{
+  const subject="POLYGON ((200000 700000,200020 700000,200020 700010,200000 700010,200000 700000))";
+  const neighbor="POLYGON ((200020 700000,200030 700000,200030 700010,200020 700010,200020 700000))";
+  const queries=[];
+  const api={
+    search:async({searchText})=>({results:[{text:searchText}]}),
+    getSearchResultData:async({text})=>({geom:text.endsWith("91")?subject:neighbor}),
+    getLayerFilterFields:async()=>[{name:"use_name",displayName:"ייעוד"}],
+    getLayerFeaturesByLocation:async(query)=>{queries.push(query);return {layers:{[query.layers[0].name]:[{attributes:{use_name:query.geometry===neighbor?"מגורים":"מסחר"}}]}};},
+    intersectFeatures:async()=>({data:[{Values:[11140,91]},{Values:[11140,92]}]}),
+  };
+  const result=await collectPlotEvidence(api,"token",{block:"11140",parcel:"91"},{x:200005,y:700005});
+  assert.equal(result.parcelGeometry,subject);
+  assert.equal(result.topography,null);
+  assert.equal(result.neighbors.length,1);
+  assert.equal(result.neighbors[0].borders[0].direction,"ממזרח");
+  assert.ok(queries.some(q=>q.geometry===neighbor));
+  assert.match(layerFacts(result.neighbors[0].layers[0])[0],/מגורים/);
+  assert.equal(result.neighbors[0].geometry,neighbor);
+});
+
+test("unavailable optional layers do not discard parcel geometry",async()=>{
+  const api={
+    search:async()=>({results:[{text:"11140 / 91"}]}),
+    getSearchResultData:async()=>({geom:"POLYGON ((200000 700000,200020 700000,200020 700010,200000 700010,200000 700000))"}),
+    getLayerFilterFields:async()=>{throw new Error("Forbidden");},
+    intersectFeatures:async()=>({data:[]}),
+  };
+  const result=await collectPlotEvidence(api,"token",{block:"11140",parcel:"91"},{x:200005,y:700005});
+  assert.ok(result.geometryAnalysis);
+  assert.ok(result.layers.every(l=>l.status==="unavailable"));
 });

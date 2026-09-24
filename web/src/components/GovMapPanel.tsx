@@ -5,7 +5,9 @@ export function GovMapPanel({ address, mode = "map", onPlotData }: { address: st
   const frame=useRef<HTMLIFrameElement>(null);
   useEffect(()=>{
     const receive=(event:MessageEvent)=>{
-      if(event.origin!==location.origin || event.source!==frame.current?.contentWindow || mode!=="plot")return;
+      if(event.origin!==location.origin || event.source!==frame.current?.contentWindow)return;
+      if(event.data?.type==="govmap-size" && event.data.address===address && Number.isFinite(event.data.height))frame.current!.style.height=`${Math.min(8000,Math.max(560,event.data.height))}px`;
+      if(mode!=="plot")return;
       if(event.data?.type==="plot-evidence" && event.data.address===address)onPlotData?.(event.data.data);
     };
     window.addEventListener("message",receive);

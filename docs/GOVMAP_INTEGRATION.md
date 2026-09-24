@@ -32,7 +32,8 @@ copy/download actions.
 The supplied public browser token is configured as the default. It is restricted
 by GovMap to approved domains and is intentionally visible to browsers. Set
 `VITE_GOVMAP_TOKEN` at build time to override it, then rebuild/redeploy.
-No server credential, database migration, or AI provider change is needed.
+The map uses no server credential. Plot generation also requires the appraisal
+Edge Function update and the plot-description migration described below.
 
 The approved production domain provided for this integration is
 `https://real-estate-appraisal-sage.vercel.app/`. Development approval for
@@ -89,15 +90,15 @@ cannot verify live API results; a local access error is not evidence that the
 integration is broken. Validate the new field response and fallback only from
 an approved deployed origin.
 
-The cadastral area is displayed as GovMap map data. The registered area in the
-draft must be entered separately from a registration extract. GovMap's official
+The cadastral area is displayed as GovMap map data. A registered area must be
+supported by an uploaded registration extract. GovMap's official
 [parcel/address finder](https://www.gov.il/apps/mapi/parcel_address/parcel_address.html)
 explicitly says its results are not legal evidence for registered area. The
-appraiser supplies verified topography, shape, cardinal borders, buildings, and
-planning notes. Empty fields are omitted, never filled from examples or
-defaults. The browser renders section 7.1 directly, without an AI provider,
-and offers a structured JSON download for a future agent pipeline. This local
-draft is not stored in team history.
+page displays retrieved facts above the map. Empty fields remain explicitly
+unavailable. Below the map the user selects the AI provider and model, enters
+custom instructions, adds files, and explicitly generates the copyable section.
+Lookup never starts an AI request automatically. Changing the address clears
+the old evidence and output. AI results are stored in team history.
 
 The plot mode now requests the selected parcel through GovMap search and
 `getSearchResultData`, then validates its WKT geometry before calculating a
@@ -105,6 +106,24 @@ minimum-oriented bounding-box shape and shared-edge neighbours. It also probes
 the configured planning, road, and building layers and preserves their raw
 attributes as evidence. These records do not prove land use, street names,
 building counts, or access by themselves. No elevation or slope source is
-currently available in this GovMap path, so topography remains an explicit
-unknown. The deterministic draft omits unknown facts; the optional AI request
-receives the same evidence and is instructed to do the same.
+currently verified in this GovMap path, so topography remains an explicit
+unknown. The previous approximate ITM conversion and external elevation call
+have been removed. The AI receives full parcel WKT, shared borders, raw layer
+records and missing-data warnings. It must not infer slope from XY coordinates.
+
+### Deploying the rebuilt workflow
+
+Run `node tools/sync_plot_prompt.mjs` before deploying the `appraisal` Edge
+Function. This bundles the complete canonical `plot_description.md` as JSON;
+web `predev` and `prebuild` also run this synchronization. Commit the generated
+`supabase/functions/appraisal/plot-prompt.json` with the source Markdown.
+Apply `20260924090000_add_plot_description_section.sql` if it is not already
+applied, deploy the Edge Function, then deploy the web app. A web deployment
+alone does not update Supabase. Structured evidence is sent as `plotEvidence`,
+separately from the user's `additional` instructions and uploaded files.
+
+Verify on the approved domain: exact parcel identity and area; polygon WKT;
+each neighbouring parcel's own planning-layer results; layer-permission errors;
+missing elevation data; then a user-triggered AI request and copyable output.
+Local tests mock GovMap contracts; they do not prove layer permissions or data
+coverage on the approved production domain.
