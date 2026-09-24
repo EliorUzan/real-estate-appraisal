@@ -12,7 +12,9 @@ type Prompt = { section_id:string; content:string; version:number };
 type Bootstrap = { settings:Setting[]; prompts:Prompt[]; members:{workspace_id:string;role:string}[]; defaultProvider:string };
 type Job = { id:string; address:string; status:string; output_text?:string; provider_id:string; model_id:string; created_at:string; error_code?:string };
 const message = (error:unknown) => error instanceof Error ? error.message : "הפעולה נכשלה";
-const defaultPrompt = (section:string) => section==="environment_description" ? catalog.defaultPrompt : "# "+catalog.sections.find(s=>s.id===section)?.label+"\n\nפרק זה טרם מומש. ניתן להכין כאן הוראות אישיות לשימוש עתידי.";
+const defaultPrompt = (section:string) => section==="environment_description" ? catalog.defaultPrompt : section==="plot_description"
+  ? "# תיאור החלקה · סעיף 7.1\n\nכתוב בעברית מקצועית ותמציתית את סעיף תיאור החלקה לשומת מקרקעין. השתמש אך ורק בנתוני govmap_spatial_evidence ובעובדות שסופקו. אין להמציא שטח רשום, טופוגרפיה, גבולות, שימושים, מבנים או ייעודים; נתוני GovMap הם נתוני עזר ויש לציין אי-ודאות מהותית תחת הערה לשמאי. הצג רק טקסט מוכן להעתקה לשומה."
+  : "# "+catalog.sections.find(s=>s.id===section)?.label+"\n\nפרק זה טרם מומש. ניתן להכין כאן הוראות אישיות לשימוש עתידי.";
 function Icon({provider}:{provider:string}) {
   if(provider==="openai" || provider==="gemini" || provider==="groq")return <img className="provider-icon" alt={provider==="openai"?"ChatGPT":provider==="groq"?"Groq":"Gemini"} src={"/icons/"+(provider==="openai"?"chatgpt":provider)+".svg"}/>;
   return <span className={"provider-icon monogram "+provider} aria-hidden="true">{provider==="anthropic"?"✳":provider==="moonshot"?"K":"Q"}</span>;
@@ -90,7 +92,7 @@ function Settings({data,setData}:{data:Bootstrap;setData:(d:Bootstrap)=>void}){
     {error&&<p role="alert" className="error">{error}</p>}
     <div className="providers">{catalog.providers.map(p=><ProviderCard key={p.id} provider={p} setting={data.settings.find(s=>s.provider_id===p.id)} onSaved={s=>setData({...data,settings:[...data.settings.filter(x=>x.provider_id!==s.provider_id),s]})}/>)}</div>
     <AccountSettings data={data}/><details className="advanced"><summary>הגדרות מתקדמות · Advanced settings</summary><h2>קובצי סוכנים אישיים</h2><p>ההוראות פרטיות לחשבון שלך. רק פרקים הזמינים גם ביישום השולחני ניתנים ליצירה.</p>
-      <label>פרק הדוח<select value={section} onChange={e=>setSection(e.target.value)}>{catalog.sections.filter(s=>s.id!=="plot_description").map(s=><option key={s.id} value={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}</select></label>
+      <label>פרק הדוח<select value={section} onChange={e=>setSection(e.target.value)}>{catalog.sections.map(s=><option disabled={!s.available} key={s.id} value={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}</select></label>
       <PromptEditor key={section} section={section} prompt={data.prompts.find(p=>p.section_id===section)} onSaved={p=>setData({...data,prompts:[...data.prompts.filter(x=>x.section_id!==p.section_id),p]})}/>
     </details></>;
 }
@@ -108,6 +110,7 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
   const [busy,setBusy]=useState(false),[output,setOutput]=useState(""),[error,setError]=useState(""),[notice,setNotice]=useState("");
   const [mapAddress,setMapAddress]=useState("");
   const [plotData,setPlotData]=useState<PlotAnalysisData|null>(null);
+  const [plotGenerateRequested,setPlotGenerateRequested]=useState(false);
   const searchAvailable=["openai","gemini","anthropic"].includes(provider)||(provider==="groq"&&["openai/gpt-oss-20b","openai/gpt-oss-120b"].includes(model));
   const pdfAvailable=["openai","gemini","anthropic"].includes(provider);
   const configured=data.settings.find(s=>s.provider_id===provider)?.configured;
@@ -119,21 +122,37 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
     if(result.job.status!=="succeeded")throw new Error("הבקשה בטיפול. בדקו את ההיסטוריה.");
     setOutput(result.job.output_text??"");setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");
   }catch(e){setError(message(e));}finally{setBusy(false);}}
-  async function generatePlotWithAi(){
-    if(!plotData || !configured || !model.trim())return;
+  async function generatePlotWithAi(dataOverride:PlotAnalysisData|null=plotData){
+    if(!dataOverride || !configured || !model.trim())return;
     setBusy(true);setError("");setNotice("");setOutput("");
     try {
-      const result=await api<{job:Job}>("generate",{requestId:crypto.randomUUID(),workspace,section:"plot_description",address:plotData.address,example:"",additional:JSON.stringify({govmap_spatial_evidence:plotData},null,2),provider,model,consent,search:false,files:[]});
+      const all=[...exampleFiles,...additionalFiles];
+      if(all.length>5||all.reduce((n,f)=>n+f.size,0)>10*1024*1024)throw new Error("מותר לצרף עד 5 קבצים ובסך הכול עד 10 MB.");
+      if(!pdfAvailable&&all.some(f=>/\.pdf$/i.test(f.name)))throw new Error("הספק שנבחר תומך בקובצי TXT, MD ו-CSV בלבד. יש להסיר קובצי PDF או לבחור ספק אחר.");
+      const files=await Promise.all([...exampleFiles.map(f=>encodeFile(f,"example")),...additionalFiles.map(f=>encodeFile(f,"additional"))]);
+      const evidence=JSON.stringify({govmap_spatial_evidence:dataOverride},null,2);
+      const combinedAdditional=(additional.trim()?additional.trim()+"\n\n":"")+"--- Verified plot data from GovMap (govmap_spatial_evidence) ---\n"+evidence;
+      const result=await api<{job:Job}>("generate",{requestId:crypto.randomUUID(),workspace,section:"plot_description",address:dataOverride.address,example,additional:combinedAdditional,provider,model,consent,search:search&&searchAvailable,files});
       if(result.job.status!=="succeeded")throw new Error("הבקשה בטיפול. בדקו את ההיסטוריה.");
       setOutput(result.job.output_text??"");setNotice("הניסוח נוצר ונשמר בהיסטוריית הצוות.");
     } catch(e){setError(message(e));} finally {setBusy(false);}
   }
-  return <><div className="title-row"><div><p className="eyebrow">{section==="plot_description"?"איסוף נתונים מ־GovMap":"כתיבה שמאית בעזרת AI"}</p><h1>בקשה חדשה</h1></div>{section!=="plot_description"&&<span className="shared-badge">היסטוריה משותפת לצוות</span>}</div>
-    <form onSubmit={section==="plot_description"?e=>{e.preventDefault();setMapAddress(address.trim());}:generate}><fieldset disabled={busy} className="request-fields">
-      <label>פרק הדוח<select value={section} onChange={e=>{setSection(e.target.value);setMapAddress("");setOutput("");setPlotData(null);}}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}</select></label>
-      {section!=="plot_description"&&data.members.length>1&&<label>סביבת עבודה<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{data.members.map(m=><option key={m.workspace_id}>{m.workspace_id}</option>)}</select></label>}
+  async function submit(e:FormEvent){
+    e.preventDefault();
+    if(section==="plot_description"){
+      setMapAddress(address.trim());
+      if(plotData && !configured){setError("יש להגדיר מפתח API לספק שנבחר בהגדרות.");return;}
+      if(plotData) await generatePlotWithAi(plotData);
+      else setPlotGenerateRequested(true);
+      return;
+    }
+    await generate(e);
+  }
+  return <><div className="title-row"><div><p className="eyebrow">{section==="plot_description"?"איסוף נתונים מ־GovMap":"כתיבה שמאית בעזרת AI"}</p><h1>בקשה חדשה</h1></div><span className="shared-badge">היסטוריה משותפת לצוות</span></div>
+    <form onSubmit={submit}><fieldset disabled={busy} className="request-fields">
+      <label>פרק הדוח<select value={section} onChange={e=>{setSection(e.target.value);setMapAddress("");setOutput("");setPlotData(null);setPlotGenerateRequested(false);}}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}</select></label>
+      {data.members.length>1&&<label>סביבת עבודה<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{data.members.map(m=><option key={m.workspace_id}>{m.workspace_id}</option>)}</select></label>}
       <label>כתובת הנכס<input value={address} onChange={e=>setAddress(e.target.value)} required maxLength={500} placeholder="לדוגמה: התחייה 2, חדרה"/></label>
-      {section!=="plot_description"&&<>
       <div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e=>{const id=e.target.value;setProvider(id);setModel(data.settings.find(s=>s.provider_id===id)?.model_id??catalog.providers.find(p=>p.id===id)!.models[0][1]);if(id==="moonshot"||id==="qwen")setSearch(false);}}>{catalog.providers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div>
       {!configured&&<p className="error">יש להגדיר מפתח API לספק זה. <button type="button" className="text-button" onClick={onSettings}>פתיחת הגדרות</button></p>}
       <label>דוגמה לסגנון הרצוי<textarea rows={5} value={example} onChange={e=>setExample(e.target.value)} maxLength={20000}/></label>
@@ -143,11 +162,9 @@ function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
       <small>עד 5 קבצים, 10 MB בסך הכול. PDF נתמך ב-ChatGPT, Gemini ו-Claude. הקבצים נשלחים לעיבוד בזיכרון ואינם נשמרים באחסון.</small>
       <label className="checkbox"><input type="checkbox" checked={search&&searchAvailable} disabled={!searchAvailable} onChange={e=>setSearch(e.target.checked)}/>חיפוש מידע עדכני באינטרנט (במודלים תומכים; עשוי להוסיף עלות)</label>
       <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את התוכן והקבצים לספק שנבחר ולשמור את הטיוטה בהיסטוריית הצוות.</label>
-      </>}
-    </fieldset><div className="actions">{section==="plot_description"?<button disabled={!address.trim()}>איסוף נתוני חלקה והכנת טיוטה</button>:<><button disabled={busy||!configured||!model.trim()}>{busy?"יוצר טיוטה… נא להמתין":"צור"}</button><button type="button" className="secondary" disabled={!address.trim()} onClick={()=>setMapAddress(address.trim())}>הצג מפה לכתובת</button></>}</div></form>
+    </fieldset><div className="actions"><button disabled={busy||!address.trim()||!model.trim()||(section!=="plot_description"&&!configured)}>{busy?"יוצר טיוטה… נא להמתין":"צור טיוטה"}</button>{section!=="plot_description"&&<button type="button" className="secondary" disabled={!address.trim()} onClick={()=>setMapAddress(address.trim())}>הצג מפה לכתובת</button>}</div></form>
     {busy&&<p role="status">הבקשה נשלחה לעיבוד. אין לסגור את החלון עד לקבלת תשובה.</p>}{error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status" className="success">{notice}</p>}
-    {section==="plot_description"&&mapAddress&&<div className="actions"><button type="button" disabled={!plotData||busy||!configured} onClick={generatePlotWithAi}>{busy?"יוצר ניסוח…":"יצירת ניסוח בעזרת AI"}</button>{!configured&&<span className="muted">להפעלת AI יש להגדיר מפתח בספק שנבחר בהגדרות.</span>}</div>}
-    {output&&<Report text={output}/>} {mapAddress&&<GovMapPanel address={mapAddress} mode={section==="plot_description"?"plot":"map"} onPlotData={setPlotData}/>}</>;
+    {output&&<Report text={output}/>} {mapAddress&&<GovMapPanel address={mapAddress} mode={section==="plot_description"?"plot":"map"} onPlotData={data=>{setPlotData(data);if(data&&plotGenerateRequested){setPlotGenerateRequested(false);void generatePlotWithAi(data);}}}/>}</>;
 }
 function Report({text}:{text:string}){
   const [copied,setCopied]=useState(false),[error,setError]=useState("");

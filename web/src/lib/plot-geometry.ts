@@ -37,7 +37,13 @@ export function describeGeometry(polygon: Polygon) {
     if(width*height<boxArea){boxArea=width*height;aspect=Math.min(width,height)/Math.max(width,height);}
   }
   const coverage=graphicArea/boxArea;
-  return { graphicArea, boxCoverage:coverage, shape: polygon.length===1 && coverage>=0.95 ? (aspect>=0.9?"מעין רבועה":"מעין מלבנית") : "רב־צלעית בלתי סדירה", method:"minimum-oriented-bounding-box", crs:"EPSG:2039" as const };
+  const numVertices=convex.length;
+  const shape = polygon.length===1 && numVertices<=6
+    ? coverage>=0.88 ? (aspect>=0.88?"מעין רבועה":"מעין מלבנית")
+      : coverage>=0.72 ? "טרפזית"
+      : "רב־צלעית בלתי סדירה"
+    : "רב־צלעית בלתי סדירה";
+  return { graphicArea, boxCoverage:coverage, shape, method:"minimum-oriented-bounding-box", crs:"EPSG:2039" as const };
 }
 
 // Positive shared edge length excludes neighbours touching only at a corner.

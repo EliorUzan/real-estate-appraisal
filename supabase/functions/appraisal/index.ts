@@ -86,7 +86,10 @@ export async function handler(req: Request) {
     }
     if (b.action !== "generate") throw new Problem(400,"Unknown action");
       check(["environment_description","plot_description"].includes(b.section),"This section is not yet implemented in the desktop or web app.");
-    const address=field(b.address,500,true), example=field(b.example??"",20000), additional=field(b.additional??"",20000);
+    // Plot evidence can include bounded GovMap layer results in addition to the
+    // appraiser's own request. Keep the user-entered example limit, but allow
+    // the combined evidence payload to pass through without truncation.
+    const address=field(b.address,500,true), example=field(b.example??"",20000), additional=field(b.additional??"",100000);
     check(b.consent===true,"Confirm sending the supplied information to the selected AI provider.");
     check(/^[0-9a-f-]{36}$/.test(b.requestId),"Invalid request id");
     check(members.some(m=>m.workspace_id===b.workspace),"Invalid workspace");

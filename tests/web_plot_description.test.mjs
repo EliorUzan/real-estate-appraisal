@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parsePlotParcels, positiveArea, renderPlotDescription } from "../web/src/lib/plot-description.ts";
+import { selectParcelSearchResult } from "../web/src/lib/plot-evidence.ts";
+import { itmToWgs84 } from "../web/src/lib/plot-topography.ts";
 
 test("collects cadastral area only when GovMap returns a valid value", () => {
   assert.deepEqual(parsePlotParcels({ status: 0, errorCode: 0, data: [
@@ -31,4 +33,21 @@ test("draft contains only verified facts and never labels mapped area as registe
   const complete = renderPlotDescription({ ...data, registeredArea: 1003, topography: "מישורית" });
   assert.match(complete, /שטח רשום של 1,003\.00 מ״ר/);
   assert.match(complete, /הקרקע מישורית/);
+});
+
+test("GovMap parcel geometry search accepts numeric or missing result classifications", () => {
+  const parcel = { block: "11140", parcel: "91" };
+  assert.deepEqual(selectParcelSearchResult({ data: { results: [
+    { type: 10, text: "גוש 11140 חלקה 91" },
+  ] } }, parcel), { type: 10, text: "גוש 11140 חלקה 91" });
+  assert.deepEqual(selectParcelSearchResult({ data: { results: [
+    { layerId: "unknown", originalText: "11140 / 91" },
+  ] } }, parcel), { layerId: "unknown", originalText: "11140 / 91" });
+  assert.throws(() => selectParcelSearchResult({ data: { results: [] } }, parcel), /לא התקבלו/);
+});
+
+test("ITM elevation sampling conversion returns finite WGS84 coordinates", () => {
+  const point = itmToWgs84(200000, 600000);
+  assert.ok(Number.isFinite(point.lat));
+  assert.ok(Number.isFinite(point.lon));
 });

@@ -61,13 +61,14 @@ function collectPlotData(): PlotAnalysisData | null {
   ];
   const warnings = ["נתוני GovMap אינם אסמכתא לשטח הרשום או לזכויות; יש לאמת מול נסח הרישום."];
   if (registeredArea === null) warnings.push("השטח מוצג כנתון GovMap; השטח הרשום לא אומת מול נסח.");
-  if (!field("topography")) warnings.push("הטופוגרפיה לא אומתה.");
+  if (!field("topography") && !spatial?.topography) warnings.push("הטופוגרפיה לא אומתה.");
   if (!field("geometry-shape")) warnings.push("צורת החלקה לא אומתה.");
   if (borders.some(border => !border.description)) warnings.push("לא אומתו כל ארבעת גבולות החלקה.");
   if (!field("buildings")) warnings.push("הבינוי הקיים לא אומת; אין להסיק שחלקה ללא בינוי.");
   return {
     address, retrievedAt, source: "GovMap PARCEL_ALL", gush: selected.block, parcel: selected.parcel,
-    cadastralArea: selected.cadastralArea, registeredArea, topography: field("topography"),
+    cadastralArea: selected.cadastralArea, registeredArea,
+    topography: field("topography") || spatial?.topography?.classification || "",
     geometryShape: field("geometry-shape"), borders, buildingsSummary: field("buildings"),
     planningNotes: field("planning-notes"), warnings:[...warnings,...(spatial?.warnings??[])], spatial,
   };
@@ -92,6 +93,10 @@ plotSelect.addEventListener("change", async () => {
   if(version!==collectionVersion)return;
   spatial=result;
   collecting=false;
+  if(spatial.topography && !field("topography")) {
+    const details=spatial.topography;
+    (document.getElementById("topography") as HTMLInputElement).value=`${details.classification} (שיפוע ${details.slopePercentage}%, הפרש גובה ${details.elevationDelta} מ׳)`;
+  }
   if(spatial.geometryAnalysis && !field("geometry-shape"))(document.getElementById("geometry-shape") as HTMLInputElement).value=spatial.geometryAnalysis.shape;
   const directions={"מצפון":"border-north","ממערב":"border-west","מדרום":"border-south","ממזרח":"border-east"};
   for(const [direction,id] of Object.entries(directions)) {
