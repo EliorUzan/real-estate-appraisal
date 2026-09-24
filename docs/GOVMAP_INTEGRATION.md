@@ -76,3 +76,33 @@ take precedence over its illustrative payloads and option names.
 - Initialization now leaves the map visible and awaits map/layer readiness
   before lookup. Current `ADDR` results without legacy `ResultCode` are supported;
   partial, ambiguous, and malformed results retain their safeguards.
+
+## Plot description section (2026-09-24)
+
+The new-request section `תיאור החלקה` opens the existing GovMap frame in plot
+mode. For an exact address, it queries `PARCEL_ALL` at the geocoded ITM point
+for `GUSH_NUM`, `PARCEL`, and `LEGAL_AREA`. If the optional area field is not
+available, it retries with the two verified identifier fields. The appraiser
+selects the correct parcel when the point intersects more than one.
+GovMap restricts the browser token to approved domains. Local development
+cannot verify live API results; a local access error is not evidence that the
+integration is broken. Validate the new field response and fallback only from
+an approved deployed origin.
+
+The cadastral area is displayed as GovMap map data. The registered area in the
+draft must be entered separately from a registration extract. GovMap's official
+[parcel/address finder](https://www.gov.il/apps/mapi/parcel_address/parcel_address.html)
+explicitly says its results are not legal evidence for registered area. The
+appraiser supplies verified topography, shape, cardinal borders, buildings, and
+planning notes. Empty fields are omitted, never filled from examples or
+defaults. The browser renders section 7.1 directly, without an AI provider,
+and offers a structured JSON download for a future agent pipeline. This local
+draft is not stored in team history.
+
+The official [spatial-analysis response](https://api.govmap.gov.il/docs/standalone/get-layer-features-by-location)
+contains attributes but no parcel polygon. The current integration therefore
+does not infer shape, boundary directions, neighboring land use, building count,
+topography, or subdivision access from a point query. Those need a verified
+polygon/height source and spatial validation before automation. The plan's
+`LEGAL_AREA`, `BUILDINGS`, and `retzefMigrashim` assumptions must be confirmed
+against actual layer schemas before using them as report facts.

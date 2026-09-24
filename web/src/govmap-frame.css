@@ -18,3 +18,15 @@ dd { margin: 0; overflow-wrap: anywhere; }
 button { font: inherit; cursor: pointer; padding: 8px 14px; color: #125244; background: #eff8f5; border: 1px solid #0f6b5b; border-radius: 6px; margin-bottom: 12px; }
 button:focus-visible { outline: 3px solid #1f7a68; outline-offset: 2px; }
 .source { color: #5b6e75; font-size: .8rem; margin: 10px 0 0; }
+#plot-section { margin: 16px 0; padding: 16px; border: 1px solid #d7e0e2; border-radius: 8px; background: #f8fbfa; }
+#plot-section h3 { margin: 0 0 8px; color: #123b4a; }
+#plot-section p { color: #41565e; line-height: 1.5; }
+#plot-form { display: grid; gap: 12px; }
+#plot-form label, #plot-output-label { display: grid; gap: 5px; font-weight: bold; }
+#plot-form input, #plot-form select, #plot-output { width: 100%; padding: 8px; font: inherit; border: 1px solid #9fb2b8; border-radius: 5px; background: white; }
+#plot-form fieldset { display: grid; gap: 10px; border: 1px solid #c7d5d8; border-radius: 6px; }
+#plot-form legend { font-weight: bold; }
+.plot-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#plot-warning { color: #835c0f !important; }
+#plot-output { margin: 6px 0 8px; line-height: 1.6; resize: vertical; }
+#plot-output-label[hidden], #plot-copy[hidden] { display: none; }

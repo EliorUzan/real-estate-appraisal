@@ -14,6 +14,29 @@
       </dl>
       <p id="map-status" role="status">טוען את המפה…</p>
       <button id="retry" type="button" hidden>ניסיון נוסף</button>
+      <section id="plot-section" hidden aria-label="נתוני תיאור החלקה">
+        <h3>תיאור החלקה · 7.1</h3>
+        <p>נתוני GovMap הם בסיס לטיוטה. יש לאמת את השטח הרשום מול נסח הרישום ולהשלים את פרטי השטח והגבולות.</p>
+        <form id="plot-form">
+          <label>גוש וחלקה שאותרו<select id="plot-parcel" required><option value="">בחרו חלקה</option></select></label>
+          <p id="plot-area" aria-live="polite"></p>
+          <label>שטח רשום לפי נסח (מ״ר)<input id="registered-area" inputmode="decimal" placeholder="לדוגמה: 1,003.00" /></label>
+          <label>טופוגרפיה מאומתת<input id="topography" placeholder="לדוגמה: מישורית" /></label>
+          <label>צורת החלקה מאומתת<input id="geometry-shape" placeholder="לדוגמה: מעין מלבנית" /></label>
+          <fieldset><legend>גבולות החלקה · מידע מאומת</legend>
+            <label>מצפון<input id="border-north" placeholder="לדוגמה: חלקה בייעוד דרך (רחוב ...)" /></label>
+            <label>ממערב<input id="border-west" /></label>
+            <label>מדרום<input id="border-south" /></label>
+            <label>ממזרח<input id="border-east" /></label>
+          </fieldset>
+          <label>בינוי קיים מאומת<input id="buildings" placeholder="לדוגמה: החלקה כוללת שני מבנים" /></label>
+          <label>הערה תכנונית מאומתת<input id="planning-notes" /></label>
+          <div class="plot-actions"><button type="submit">יצירת טיוטה ללא AI</button><button id="plot-json" type="button">הורדת נתונים מובנים</button></div>
+        </form>
+        <p id="plot-warning" role="status"></p>
+        <label id="plot-output-label" hidden>טיוטה לבדיקה<textarea id="plot-output" rows="12" readonly></textarea></label>
+        <button id="plot-copy" type="button" hidden>העתקת טיוטה</button>
+      </section>
       <div id="map-shell" aria-busy="true">
         <div id="govmap" aria-label="מפת הכתובת עם שכבות גושים וחלקות"></div>
         <div id="map-placeholder">המפה עדיין אינה ממוקדת בכתובת המבוקשת.</div>
