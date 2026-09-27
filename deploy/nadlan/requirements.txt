@@ -1,0 +1,5 @@
+https://github.com/nitzpo/nadlan-mcp/archive/b87cb268d5f0265dee327b0a237da8ccd5062b8f.zip
+fastmcp==2.14.7
+mcp==1.30.0
+uvicorn==0.54.0
+starlette==1.7.0

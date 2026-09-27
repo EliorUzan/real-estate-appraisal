@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 import catalog from "./catalog.json" with { type: "json" };
 import { generationInput } from "./generation-input.ts";
+import { findNearbyTransactions, prepareDirectTransactionSearch, compareDirectTransactions, validateTransactionInput } from "./nearby-transactions.ts";
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -56,7 +57,7 @@ export async function handler(req: Request) {
         db.from("profiles").select("default_provider").eq("user_id",user.id).maybeSingle(),
       ]);
       failDb(settings.error || prompts.error || profile.error);
-      return reply({settings:settings.data,prompts:prompts.data,members,defaultProvider:profile.data?.default_provider ?? "openai"});
+      return reply({settings:settings.data,prompts:prompts.data,members,defaultProvider:profile.data?.default_provider ?? "openai",nadlanConfigured:!!Deno.env.get("NADLAN_MCP_URL")});
     }
     if (b.action === "saveProvider") {
       check(catalog.providers.some(p=>p.id===b.provider), "Unknown provider");
@@ -82,8 +83,36 @@ export async function handler(req: Request) {
       return reply({section_id:b.section,content,version:b.version+1});
     }
     if (b.action === "history") {
-      const {data,error}=await db.from("generation_jobs").select("id,address,section_id,provider_id,model_id,status,output_text,error_code,created_at,owner_id").in("workspace_id",members.map(m=>m.workspace_id)).is("deleted_at",null).order("created_at",{ascending:false}).limit(100);
-      failDb(error); return reply({jobs:data});
+      const results=await Promise.all(members.flatMap(m=>["environment_description","plot_description"].map(section=>
+        db.from("generation_jobs").select("id,address,section_id,workspace_id,provider_id,model_id,status,error_code,created_at,owner_id")
+          .eq("workspace_id",m.workspace_id).eq("section_id",section).is("deleted_at",null)
+          .order("created_at",{ascending:false}).order("id",{ascending:false}).limit(10))));
+      results.forEach(r=>failDb(r.error));
+      return reply({jobs:results.flatMap(r=>r.data??[]).sort((a,b)=>b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id))});
+    }
+    if (b.action === "historyDetail") {
+      const id=field(b.id,36,true);
+      check(/^[0-9a-f-]{36}$/.test(id),"Invalid history id");
+      const {data,error}=await db.from("generation_jobs").select("id,output_text,plot_evidence,additional_request")
+        .eq("id",id).in("workspace_id",members.map(m=>m.workspace_id)).is("deleted_at",null).maybeSingle();
+      failDb(error);
+      if(!data)throw new Problem(404,"הרשומה אינה זמינה או הוסרה בהתאם למגבלת ההיסטוריה. רעננו את הרשימה.");
+      return reply({job:data});
+    }
+    if (["nearbyTransactions", "prepareNearbyTransactions", "compareNearbyTransactions"].includes(b.action)) {
+      check(b.consent === true, "יש לאשר שליחת נתוני החיפוש ל־GovMap ולספק AI.");
+      check(catalog.providers.some(p => p.id === b.provider), "Unknown provider");
+      const model = field(b.model, 160, true);
+      const query = validateTransactionInput(b.query);
+      const secret = await db.rpc("poc_provider_secret", {p_user:user.id,p_provider:b.provider});
+      failDb(secret.error);
+      check(secret.data, "יש לשמור מפתח API לספק הנבחר בהגדרות.");
+      const aiOptions = { provider: b.provider, model, key: secret.data };
+      if (b.action === "prepareNearbyTransactions") return reply(await prepareDirectTransactionSearch(query, aiOptions));
+      if (b.action === "compareNearbyTransactions") return reply(await compareDirectTransactions(query, b.evidence, aiOptions));
+      // This is an ephemeral appraiser helper, never a generation_job or report revision.
+      return reply(await findNearbyTransactions(query, {provider:b.provider,model,key:secret.data,
+        endpoint:Deno.env.get("NADLAN_MCP_URL") ?? "",token:Deno.env.get("NADLAN_MCP_TOKEN") ?? ""}));
     }
     if (b.action !== "generate") throw new Problem(400,"Unknown action");
       check(["environment_description","plot_description"].includes(b.section),"This section is not yet implemented in the desktop or web app.");
@@ -111,10 +140,11 @@ export async function handler(req: Request) {
     }
     check(total<=10*1024*1024,"Files exceed 10 MB");
     const requestHash=await digest(JSON.stringify({workspace:b.workspace,section:b.section,address,example,additional,plotEvidence,provider:b.provider,model,files,search:!!b.search}));
-    const previous=await db.from("generation_jobs").select("id,status,output_text,request_hash").eq("owner_id",user.id).eq("idempotency_key",b.requestId).maybeSingle();
+    const previous=await db.from("generation_jobs").select("id,status,output_text,request_hash,deleted_at").eq("owner_id",user.id).eq("idempotency_key",b.requestId).maybeSingle();
     failDb(previous.error);
     if(previous.data){
       if(previous.data.request_hash!==requestHash)throw new Problem(409,"Request ID already used with different content");
+      if(previous.data.deleted_at)throw new Problem(410,"This request has expired from history. No new AI request was made.");
       return reply({job:previous.data});
     }
     const [{data:setting,error:settingError},{data:promptRow,error:promptError}]=await Promise.all([
@@ -128,6 +158,7 @@ export async function handler(req: Request) {
     const {prompt,input}=generationInput(b.section,promptRow?.content,address,example,additional,plotEvidence);
     const created=await db.from("generation_jobs").insert({
       workspace_id:b.workspace,owner_id:user.id,section_id:b.section,address,example_text:example,additional_request:additional,
+      plot_evidence:plotEvidence?JSON.parse(plotEvidence):null,
       provider_id:b.provider,model_id:model,credential_version:setting!.credential_version,prompt_hash:await digest(prompt),
       consent_version:"provider-transmission-v1",consented_at:new Date().toISOString(),idempotency_key:b.requestId,request_hash:requestHash,
       status:"running",stage:"calling_provider",attempt:1,started_at:new Date().toISOString(),
@@ -143,7 +174,7 @@ export async function handler(req: Request) {
       return reply({job:{id:jobId,status:"succeeded",output_text:output}});
     } catch(error) {
       const uncertain=providerReturned || !(error instanceof Problem);
-      await db.from("generation_jobs").update({status:uncertain?"needs_review":"failed",completed_at:new Date().toISOString(),error_code:uncertain?"PROVIDER_OUTCOME_UNCERTAIN":"PROVIDER_ERROR"}).eq("id",jobId).eq("owner_id",user.id);
+      await db.rpc("poc_fail_job",{p_job:jobId,p_user:user.id,p_uncertain:uncertain});
       if(uncertain)throw new Problem(504,"The request could not be confirmed. Check History before starting another request; the provider may have charged it.");
       throw error;
     }

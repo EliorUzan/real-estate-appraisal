@@ -6,26 +6,19 @@ import { supabase } from "./lib/supabase";
 import catalog from "./catalog.json";
 import plotAgent from "./plot-prompt.json";
 import { GovMapPanel } from "./components/GovMapPanel";
+import { History } from "./components/History";
+import { Icon, Models } from "./components/ProviderControls";
+import { NearbyTransactions } from "./components/NearbyTransactions";
 import type { PlotAnalysisData } from "./lib/plot-description";
 
 type Setting = { provider_id:string; model_id:string; configured:boolean; key_last4:string|null };
 type Prompt = { section_id:string; content:string; version:number };
-type Bootstrap = { settings:Setting[]; prompts:Prompt[]; members:{workspace_id:string;role:string}[]; defaultProvider:string };
+type Bootstrap = { settings:Setting[]; prompts:Prompt[]; members:{workspace_id:string;role:string}[]; defaultProvider:string; nadlanConfigured?:boolean };
 type Job = { id:string; address:string; status:string; output_text?:string; provider_id:string; model_id:string; created_at:string; error_code?:string };
 const message = (error:unknown) => error instanceof Error ? error.message : "הפעולה נכשלה";
 const defaultPrompt = (section:string) => section==="environment_description" ? catalog.defaultPrompt : section==="plot_description"
   ? plotAgent.content
   : "# "+catalog.sections.find(s=>s.id===section)?.label+"\n\nפרק זה טרם מומש. ניתן להכין כאן הוראות אישיות לשימוש עתידי.";
-function Icon({provider}:{provider:string}) {
-  if(provider==="openai" || provider==="gemini" || provider==="groq")return <img className="provider-icon" alt={provider==="openai"?"ChatGPT":provider==="groq"?"Groq":"Gemini"} src={"/icons/"+(provider==="openai"?"chatgpt":provider)+".svg"}/>;
-  return <span className={"provider-icon monogram "+provider} aria-hidden="true">{provider==="anthropic"?"✳":provider==="moonshot"?"K":"Q"}</span>;
-}
-function Models({provider,value,onChange}:{provider:string;value:string;onChange:(v:string)=>void}) {
-  const models=catalog.providers.find(p=>p.id===provider)?.models??[];
-  return <label>מזהה מודל<select aria-label="בחירת מודל" dir="ltr" value={models.some(m=>m[1]===value)?value:"custom"} onChange={e=>onChange(e.target.value==="custom"?"":e.target.value)}>
-    {models.map(([label,id])=><option key={id} value={id}>{label}</option>)}<option value="custom">מודל אחר…</option>
-  </select><input aria-label="מזהה מודל" dir="ltr" value={value} maxLength={160} onChange={e=>onChange(e.target.value)} required/><small>הזמינות תלויה בחשבון הספק. אפשר לבחור מודל מהרשימה או להזין מזהה אחר.</small></label>;
-}
 function Login(){
   const [email,setEmail]=useState(""),[password,setPassword]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   async function submit(e:FormEvent){e.preventDefault();setBusy(true);setError("");try{
@@ -107,8 +100,8 @@ async function encodeFile(file:File,role:string){
 function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
   const [section,setSection]=useState("environment_description");
   return <><div className="title-row"><h1>בקשה חדשה</h1></div>
-    <label>פרק הדוח<select value={section} onChange={e=>setSection(e.target.value)}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}</select></label>
-    <SectionRequest key={section} section={section} data={data} onSettings={onSettings}/>
+    <label>סוג הבקשה<select value={section} onChange={e=>setSection(e.target.value)}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}<option value="nearby_transactions">משוך עסקאות מהסביבה</option></select></label>
+    {section==="nearby_transactions" ? <NearbyTransactions data={data} onSettings={onSettings}/> : <SectionRequest key={section} section={section} data={data} onSettings={onSettings}/>}
   </>;
 }
 function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap;onSettings:()=>void}){
@@ -170,24 +163,11 @@ function Report({text}:{text:string}){
   const [copied,setCopied]=useState(false),[error,setError]=useState("");
   return <section className="report"><h2>טיוטה לבדיקה</h2><p className="muted">יש לבדוק את העובדות והניסוח לפני שילוב בשומה.</p><textarea aria-label="טיוטת הדוח" value={text} readOnly rows={15}/><div className="actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(text);setCopied(true);}catch{setError("לא ניתן להעתיק אוטומטית. סמנו את הטקסט והעתיקו.");}}}>{copied?"הועתק":"העתקה"}</button><button className="secondary" onClick={()=>{const url=URL.createObjectURL(new Blob(["\ufeff"+text],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="appraisal-draft.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}>הורדת טקסט</button></div>{error&&<p role="alert">{error}</p>}</section>;
 }
-function HistoryItem({job}:{job:Job}){
-  const [open,setOpen]=useState(false);
-  return <details className="history-item" onToggle={event=>setOpen(event.currentTarget.open)}>
-    <summary>{job.address} · {new Date(job.created_at).toLocaleString("he-IL")} · {({succeeded:"הושלם",running:"בטיפול",failed:"נכשל",needs_review:"דרושה בדיקה"} as Record<string,string>)[job.status]??job.status}</summary>
-    {open&&<><p><bdi>{job.provider_id} / {job.model_id}</bdi></p>{job.output_text?<Report text={job.output_text}/>:<p>{job.status==="running"?"הבקשה עדיין מסומנת בטיפול. אם חלפו כמה דקות, אין להפעיל שוב לפני בדיקת חיוב הספק.":job.error_code??"לא נשמרה טיוטה."}</p>}<GovMapPanel address={job.address}/></>}
-  </details>;
-}
-function History(){
-  const [jobs,setJobs]=useState<Job[]>([]),[error,setError]=useState(""),[busy,setBusy]=useState(true);
-  async function refresh(){setBusy(true);try{const r=await api<{jobs:Job[]}>("history");setJobs(r.jobs);setError("");}catch(e){setError(message(e));}finally{setBusy(false);}}
-  useEffect(()=>{void refresh();},[]);
-  return <><div className="title-row"><h1>היסטוריית הצוות</h1><button onClick={refresh} disabled={busy}>רענון</button></div>{error&&<p role="alert" className="error">{error}</p>}{busy?<p role="status">טוען…</p>:!jobs.length?<p>עדיין אין בקשות שמורות.</p>:jobs.map(job=><HistoryItem key={job.id} job={job}/>)}</>;
-}
 function Workspace({session}:{session:Session}){
   const [view,setView]=useState<"new"|"history"|"settings">("new"),[data,setData]=useState<Bootstrap|null>(null),[error,setError]=useState("");
   useEffect(()=>{let active=true;api<Bootstrap>("bootstrap").then(d=>{if(active)setData(d);}).catch(e=>{if(active)setError(message(e));});return()=>{active=false;};},[]);
   return <div dir="rtl"><header><span className="brand">עוזר להערכת מקרקעין</span><nav aria-label="ניווט ראשי"><button className={view==="new"?"nav-active":""} onClick={()=>setView("new")}>בקשה חדשה</button><button className={view==="history"?"nav-active":""} onClick={()=>setView("history")}>היסטוריה</button></nav><span className="account"><bdi>{session.user.email}</bdi><button className="quiet-button" onClick={()=>supabase.auth.signOut()}>יציאה</button></span><button className={"gear "+(view==="settings"?"nav-active":"")} aria-label="הגדרות" title="הגדרות" onClick={()=>setView("settings")}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.325 4.317a1.125 1.125 0 0 1 1.088-.817h1.174c.53 0 .996.35 1.088.857l.196 1.084c.056.311.252.57.537.719.257.135.5.293.724.47.254.2.598.238.888.103l1.009-.47a1.125 1.125 0 0 1 1.487.49l.587 1.016c.274.474.11 1.08-.365 1.354l-.918.53a1.125 1.125 0 0 0-.562.974v.746c0 .402.215.774.562.974l.918.53c.475.274.639.88.365 1.354l-.587 1.016a1.125 1.125 0 0 1-1.487.49l-1.009-.47a1.125 1.125 0 0 0-.888.103c-.224.177-.467.335-.724.47a1.125 1.125 0 0 0-.537.719l-.196 1.084a1.125 1.125 0 0 1-1.088.857h-1.174a1.125 1.125 0 0 1-1.088-.817l-.196-1.084a1.125 1.125 0 0 0-.537-.719 5.23 5.23 0 0 1-.724-.47 1.125 1.125 0 0 0-.888-.103l-1.009.47a1.125 1.125 0 0 1-1.487-.49l-.587-1.016a1.125 1.125 0 0 1 .365-1.354l.918-.53a1.125 1.125 0 0 0 .562-.974v-.746c0-.402-.215-.774-.562-.974l-.918-.53a1.125 1.125 0 0 1-.365-1.354l.587-1.016a1.125 1.125 0 0 1 1.487-.49l1.009.47a1.125 1.125 0 0 0 .888-.103c.224-.177.467-.335.724-.47.285-.15.481-.408.537-.719l.196-1.084Z"/><circle cx="12" cy="12" r="3"/></svg></button></header>
-    <main className="workspace"><section className="content-card">{error?<><p className="error" role="alert">{error}</p><button onClick={()=>location.reload()}>ניסיון נוסף</button></>:!data?<p role="status">טוען את החשבון…</p>:view==="settings"?<Settings data={data} setData={setData}/>:view==="history"?<History/>:<NewRequest data={data} onSettings={()=>setView("settings")}/>}</section></main>
+    <main className="workspace"><section className="content-card">{error?<><p className="error" role="alert">{error}</p><button onClick={()=>location.reload()}>ניסיון נוסף</button></>:!data?<p role="status">טוען את החשבון…</p>:view==="settings"?<Settings data={data} setData={setData}/>:view==="history"?<History renderReport={text=><Report text={text}/>}/>:<NewRequest data={data} onSettings={()=>setView("settings")}/>}</section></main>
   </div>;
 }
 export function App(){

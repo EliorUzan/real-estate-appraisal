@@ -14,3 +14,4 @@ web/dist/
 coverage/
 .npm-cache/
 .vercel/
+supabase/.temp/

@@ -1,0 +1,94 @@
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import type { TransactionQuery, TransactionResult } from "../../../supabase/functions/appraisal/nearby-transactions";
+import { GOVMAP_APP_ORIGIN } from "../../../supabase/functions/appraisal/govmap-transactions";
+import catalog from "../catalog.json";
+import { api } from "../lib/edge";
+import { Icon, Models } from "./ProviderControls";
+import { TransactionTable } from "./TransactionTable";
+
+type Account = { defaultProvider: string; settings: { provider_id: string; model_id: string; configured: boolean }[]; nadlanConfigured?: boolean };
+const optionalNumber = (s: string) => s === "" ? null : Number(s);
+
+export function NearbyTransactions({ data, onSettings }: { data: Account; onSettings: () => void }) {
+  const modelFor = (id: string) => data.settings.find(s => s.provider_id === id)?.model_id ?? catalog.providers.find(p => p.id === id)!.models[0][1];
+  const [provider, setProvider] = useState(data.defaultProvider), [model, setModel] = useState(modelFor(data.defaultProvider));
+  const [address, setAddress] = useState(""), [description, setDescription] = useState("");
+  const [rooms, setRooms] = useState(""), [area, setArea] = useState(""), [radius, setRadius] = useState("");
+  const [startDate, setStartDate] = useState(""), [endDate, setEndDate] = useState("");
+  const [dealType, setDealType] = useState(""), [limit, setLimit] = useState("20"), [consent, setConsent] = useState(true);
+  const [result, setResult] = useState<TransactionResult | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [collection, setCollection] = useState<{ requestId: string; query: TransactionQuery } | null>(null);
+  const [stage, setStage] = useState("");
+  const approvedDomain = location.origin === GOVMAP_APP_ORIGIN;
+  const configured = data.settings.some(s => s.provider_id === provider && s.configured);
+
+  useEffect(() => {
+    if (!collection) return;
+    let active = true, received = false;
+    const finish = () => { if (active) { inFlight.current = false; setBusy(false); setCollection(null); } };
+    const timer = setTimeout(() => { if (!received && active) { setError("איסוף העסקאות ארך זמן רב מדי. צמצמו את הרדיוס ונסו שוב."); finish(); } }, 300000);
+    const receive = async (event: MessageEvent) => {
+      if (received || event.origin !== location.origin || event.source !== frame.current?.contentWindow ||
+          event.data?.type !== "govmap-transactions" || event.data.requestId !== collection.requestId) return;
+      received = true; clearTimeout(timer);
+      try {
+        if (typeof event.data.error === "string") throw new Error(event.data.error);
+        setStage("העסקאות התקבלו. בודק את הנתונים ומשווה באמצעות המודל שנבחר…");
+        const next = await api<TransactionResult>("compareNearbyTransactions", { provider, model, consent, query: collection.query, evidence: event.data.evidence });
+        if (active) setResult(next);
+      } catch (e) { if (active) setError(e instanceof Error ? e.message : "השוואת העסקאות נכשלה."); }
+      finally { finish(); }
+    };
+    window.addEventListener("message", receive);
+    return () => { active = false; clearTimeout(timer); window.removeEventListener("message", receive); };
+  }, [collection, provider, model, consent]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (inFlight.current) return;
+    if (!approvedDomain) { setError("איסוף GovMap זמין בדומיין המאושר בלבד."); return; }
+    if (startDate && endDate && startDate > endDate) { setError("תאריך ההתחלה מאוחר מתאריך הסיום."); return; }
+    inFlight.current = true; setBusy(true); setError(""); setResult(null);
+    setStage("מכין את פרטי החיפוש…");
+    try {
+      const query = await api<TransactionQuery>("prepareNearbyTransactions", { provider, model, consent, query: {
+        address, description, rooms: optionalNumber(rooms), area: optionalNumber(area), radiusMeters: optionalNumber(radius), startDate, endDate, dealType, limit: Number(limit),
+      } });
+      setStage("אוסף עסקאות ישירות מ־GovMap באמצעות הדפדפן…");
+      setCollection({ requestId: crypto.randomUUID(), query });
+    } catch (e) { setError(e instanceof Error ? e.message : "אחזור העסקאות נכשל."); inFlight.current = false; setBusy(false); }
+  }
+
+  return <section className="nearby-transactions" aria-labelledby="nearby-title">
+    <h2 id="nearby-title">משוך עסקאות מהסביבה</h2>
+    <p className="muted">כלי עזר להשוואת עסקאות. מלאו את הפרטים הידועים לכם; אפשר לציין את המיקום גם בטקסט החופשי. התוצאות מוצגות בטבלה ואינן נשמרות כדוח.</p>
+    {!approvedDomain && <p role="status" className="error">הרשאת GovMap מוגדרת ל־<a href={GOVMAP_APP_ORIGIN}>אתר היישום הפעיל</a>. האיסוף אינו זמין ב־localhost או בתצוגה מקדימה; יש לפרוס שם את הגרסה המעודכנת.</p>}
+    <form onSubmit={submit}><fieldset disabled={busy} className="request-fields">
+      <label>כתובת או אזור הנכס<input value={address} onChange={e => setAddress(e.target.value)} maxLength={500} placeholder="לדוגמה: דיזנגוף 50, תל אביב"/></label>
+      <div className="two-columns">
+        <label>מספר חדרים<input type="number" min="0.5" max="100" step="0.5" value={rooms} onChange={e => setRooms(e.target.value)} placeholder="לא חובה"/></label>
+        <label>שטח הנכס במ״ר<input type="number" min="0.1" max="1000000" step="0.1" value={area} onChange={e => setArea(e.target.value)} placeholder="לא חובה"/></label>
+      </div>
+      <label>תיאור הנכס והעדפות לחיפוש<textarea rows={4} value={description} onChange={e => setDescription(e.target.value)} maxLength={6000} placeholder="סוג הנכס, קומה, מצב, חניה, תקופה רצויה וכל פרט נוסף שיעזור להשוואה"/></label>
+      <div className="two-columns">
+        <label>עסקאות מתאריך<input type="date" value={startDate} max={endDate || new Date().toISOString().slice(0, 10)} onChange={e => setStartDate(e.target.value)}/></label>
+        <label>עסקאות עד תאריך<input type="date" value={endDate} min={startDate || undefined} max={new Date().toISOString().slice(0, 10)} onChange={e => setEndDate(e.target.value)}/></label>
+        <label>רדיוס חיפוש במטרים<input type="number" min="1" max="5000" step="1" value={radius} onChange={e => setRadius(e.target.value)} placeholder="500, אלא אם צוין בתיאור"/></label>
+        <label>סוג עסקה<select value={dealType} onChange={e => setDealType(e.target.value)}><option value="">לפי הבקשה (ברירת מחדל: הכל)</option><option value="both">יד ראשונה ויד שנייה</option><option value="new">יד ראשונה</option><option value="used">יד שנייה</option></select></label>
+        <label>מספר תוצאות מרבי<input type="number" min="1" max="40" step="1" value={limit} onChange={e => setLimit(e.target.value)} required/></label>
+      </div>
+      <small>ללא תקופה או רדיוס בבקשה: שנתיים אחרונות ו־500 מטרים. שדות מפורשים קודמים לתיאור החופשי. חדרים ושטח משמשים לדירוג דמיון, לא לסינון קשיח.</small>
+      <div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e => {setProvider(e.target.value); setModel(modelFor(e.target.value));}}>{catalog.providers.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div>
+      {!configured && <p className="error">יש להגדיר מפתח API לספק זה. <button type="button" className="text-button" onClick={onSettings}>פתיחת הגדרות</button></p>}
+      <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את פרטי החיפוש ל־GovMap ואת פרטי הנכס והעסקאות שהתקבלו לספק AI הנבחר.</label>
+      <button disabled={busy || !approvedDomain || !configured || !model.trim() || !consent || (!address.trim() && !description.trim())}>{busy ? "מאתר ומשווה עסקאות…" : "משוך עסקאות מהסביבה"}</button>
+    </fieldset></form>
+    {busy && <p role="status">{stage}</p>}
+    {collection && <iframe ref={frame} title="איסוף עסקאות מ־GovMap" style={{ width: "100%", minHeight: 440, border: 0 }} src={`/govmap-transactions.html#${new URLSearchParams({ address: collection.query.address, radius: String(collection.query.radiusMeters), request: collection.requestId })}`}/>}
+    {error && <p role="alert" className="error">{error}</p>}
+    {result && <TransactionTable result={result}/>}
+  </section>;
+}

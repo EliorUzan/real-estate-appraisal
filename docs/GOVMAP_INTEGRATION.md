@@ -150,3 +150,27 @@ each neighbouring parcel's own planning-layer results; layer-permission errors;
 missing elevation data; then a user-triggered AI request and copyable output.
 Local tests mock GovMap contracts; they do not prove layer permissions or data
 coverage on the approved production domain.
+
+## Saved history and retention (2026-09-27)
+
+`generation_jobs.plot_evidence` stores the exact parsed JSON submitted to the
+AI, including `rawGovMapResponses`, alongside the AI report. Existing reports
+without a snapshot display an explicit notice; no historical data is invented
+or fetched again. The history page separates plot and environment descriptions
+and offers report copying/download plus GovMap JSON copying/download.
+
+The database retains ten completed history payloads per workspace and section,
+ordered by request creation time and ID. Completion and failure RPCs serialize
+pruning with a transaction advisory lock. Older output, raw evidence, requests,
+and duplicate revision text are cleared; small job receipts remain for
+idempotency and existing foreign-key references. In-flight jobs are protected.
+Expired request IDs return 410 rather than triggering another paid generation.
+The list endpoint fetches only small metadata rows (ten per section/team);
+`historyDetail` loads report/evidence on demand and verifies team membership.
+
+Migration `20260926210539_plot_history_retention.sql` and appraisal Edge Function
+version 11 were deployed. The rollback-only integration test in
+`tests/plot_history_retention.sql` passed against Supabase, checking snapshot
+pairing, pruning, failures, pending jobs, and separation of sections/teams.
+TypeScript, targeted ESLint, and the production build passed. Local browser
+verification was blocked by integrated-browser navigation/CDP timeouts.
