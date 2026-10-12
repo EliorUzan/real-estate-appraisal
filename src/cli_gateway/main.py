@@ -130,6 +130,8 @@ def main():
         client = Client(os.environ["CLI_WORKER_URL"], os.environ["CLI_HOST_ID"], secret_path.read_text().strip())
         engine, journal = Docker(), Journal(data / "journal")
         approved = manifests(os.environ["CLI_MANIFEST_DIR"])
+        from .personal_accounts import load_account_bindings, manifest_for_job
+        account_bindings = load_account_bindings(os.environ["CLI_MANIFEST_DIR"], approved)
         login_directory = os.environ.get("CLI_LOGIN_MANIFEST_DIR")
         login_approved = {}
         login_runner = login_journal = None
@@ -213,6 +215,7 @@ def main():
                             if not manifest or manifest["provider"] != job["provider"]:
                                 client.call("quarantineHost")
                                 raise GatewayError("MANIFEST_MISMATCH")
+                            manifest = manifest_for_job(job, manifest, account_bindings)
                             runner.run(job, manifest)
                         last_kind = "inference"
                     elif maintenance_work():

@@ -2,6 +2,12 @@
 
 Updated 12 October 2026. **The browser onboarding milestone is not complete or enabled.** This is an implementation checkpoint, not a claim that all acceptance criteria in the approved plan passed.
 
+## Additional owned personal account
+
+The owner requested the existing Codespace/image for `uzan86@gmail.com` as well. Its Settings request created a separate `pending_setup` connection/home, but browser onboarding is disabled and the live worker advertises no login protocol. A pending request is not a running sign-in process. Settings now states this explicitly instead of offering a misleading self-service Antigravity request button.
+
+Prepared support for operator-verified additional personal homes under `manifests/accounts`. Each binding has its own fresh native-search/read-denial evidence, exact connection/owner/revision and runtime home; it must match every image/tool/network setting of the unchanged base approval. Unknown homes remain rejected. Credentials are never copied from the first account. This is supervised setup of another explicitly owned test identity, not general browser signup/customer rollout. The new account is not connected until official Google authentication and verification actually pass. Commit this code before worker installation; do not deploy the frontend.
+
 ## Current release checkpoint: CLI report sections
 
 The local frontend now offers the same personal CLI mechanism for environment description, plot description and nearby transactions. Environment requests show the existing GovMap map/cadastral panel. Plot requests require fresh, matching GovMap parcel evidence. Transaction requests collect source data through the existing Nadlan/GovMap paths before the CLI analyzes it; no provider API key is required for CLI analysis. Settings' saved section instructions are used for all three sections. Consent starts selected, and incomplete forms accept a click and explain missing inputs.

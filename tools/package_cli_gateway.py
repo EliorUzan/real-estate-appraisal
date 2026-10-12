@@ -10,7 +10,7 @@ files += [root / "deploy/cli-gateway" / name for name in (
     "gemini-settings.json", "antigravity-settings.json", "antigravity-text-agent.md", "antigravity-egress.json", "manifest.example.json", "requirements.txt", "README.md",
     "CODESPACES.md", "RESEARCH.md", "configure-maps.py", "bootstrap-ubuntu.sh", "provision-secret.py", "cli-gateway.service",
     "worker.env.example", "build-images.py", "releases.json", "native-login.py", "verify-native.py", "probe-research.py", "approve-research.py", "approve-personal.py", "resume-personal.py", "provision-egress.py", "verify-egress.py", "repair-codespaces-network.py", "CODESPACES_VERIFICATION.md",
-    "login-manifest.example.json", "codespace-post-start.sh", "backup-runtime.py", "install-codespace-startup.py", "approve-rebuilt-runtime.py", "ONBOARDING.md")]
+    "login-manifest.example.json", "codespace-post-start.sh", "backup-runtime.py", "install-codespace-startup.py", "approve-rebuilt-runtime.py", "approve-personal-account.py", "ONBOARDING.md")]
 target = root / "artifacts/cli-gateway-worker.tar.gz"
 target.parent.mkdir(exist_ok=True)
 with tarfile.open(target, "w:gz") as archive:

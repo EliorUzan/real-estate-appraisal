@@ -6,6 +6,17 @@ Created test environment: `refactored-winner-7w5x75jrvjv2wqwv` (2 cores, 8 GB RA
 
 ## Everyday personal testing
 
+Additional explicitly owned test identities can be approved separately using
+`approve-personal-account.py`. Stop/drain the supervisor with no active work,
+perform native sign-in into that connection's distinct volume, then run
+`probe-research.py --connection UUID --revision N` in `search` and `canary` modes
+and the fresh network checks. The approval helper verifies those scoped reports
+and writes a private binding in `manifests/accounts`; the root manifest/image
+stays unchanged. Reusing another account's credential volume or copying its
+native home is forbidden. Operator verification precedes marking a connection
+connected and adding the owner to the fixed host's wake allowlist. Browser
+onboarding remains disabled until its independent native protocol tests pass.
+
 1. Open the Codespaces editor above and choose **Restart codespace** if stopped.
 2. Open a terminal in `/workspaces/real-estate-appraisal` and run:
 

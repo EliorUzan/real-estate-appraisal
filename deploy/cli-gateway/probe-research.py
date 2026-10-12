@@ -59,6 +59,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',required=True)
     parser.add_argument('--mode',choices=['search','read','canary'],default='search')
+    parser.add_argument('--connection', help='Explicit pending personal connection for an additional owned account')
+    parser.add_argument('--revision', type=int)
     args=parser.parse_args()
     if os.environ.get('CODESPACES')!='true':raise ValueError('Personal Codespaces only')
     values=dict(line.split('=',1) for line in private_file(args.config).read_text().splitlines() if line and not line.startswith('#'))
@@ -72,6 +74,14 @@ def main():
         if engine.inventory() or Journal(data/'journal').load() or client.call('getAssignment').get('job'):
             raise ValueError('An active or unresolved attempt exists')
         if not client.call('heartbeatHost',manifests=[]).get('drain'):raise ValueError('Drain the host first')
+        if args.connection:
+            connection = next((c for c in client.call('getMaintenance')['connections']
+                if c['id'] == args.connection and c['revision'] == args.revision
+                and c['provider'] == 'gemini' and c['status'] == 'pending_setup'), None)
+            if not connection: raise ValueError('Pending personal connection changed')
+            manifest = {**manifest, 'personalRuntimeRef': connection['runtimeRef']}
+        elif args.revision is not None:
+            raise ValueError('Revision requires an explicit connection')
         selected_policy=json.loads(json.dumps(POLICY))
         if args.mode=='read':selected_policy['permissions']['allow']=['read_url(*)']
         policy=json.dumps(selected_policy,sort_keys=True).encode()
@@ -132,6 +142,7 @@ def main():
                 'diagnosticAgentDigest':hashlib.sha256(definition).hexdigest() if args.mode=='canary' else None,
                 'image':manifest['image'],'personalRuntimeRef':manifest['personalRuntimeRef'],'egressDigest':manifest['egressDigest'],
                 'canaryLeaked':fake in bytes(stdout.data) or fake in bytes(stderr.data) if fake else None}
+            if args.connection:report.update(connectionId=args.connection,revision=args.revision)
             report['diagnostics']=runpy.run_path(str(Path(__file__).with_name('verify-native.py')))['diagnostics'](bytes(stdout.data),bytes(stderr.data))
             report['parserVerified']=False
             if args.mode=='search':
