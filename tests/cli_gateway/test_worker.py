@@ -41,6 +41,10 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(report['terminalStatus'],'INTERRUPTED')
         self.assertEqual(report['toolSteps'],1)
         self.assertEqual(report['answerBytes'],len(secret))
+        events[-1]['result']['error']='RESOURCE_EXHAUSTED: quota exceeded '+secret
+        report=stream_diagnostics('\n'.join(json.dumps(e) for e in events).encode())
+        self.assertEqual(report['nativeErrorTags'],['quota'])
+        self.assertNotIn(secret,json.dumps(report))
 
     def test_search_profile_accepts_native_search_but_rejects_other_tools(self):
         import hashlib

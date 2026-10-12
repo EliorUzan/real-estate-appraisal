@@ -8,10 +8,31 @@ from ..research import PROFILE, WEB_TOOLS, AGENT_NAME
 PROVIDERS = frozenset({"claude", "openai", "gemini"})
 
 
+def native_error_tags(value):
+    """Diagnostic categories, not authoritative error-code classification."""
+    text = json.dumps(value, ensure_ascii=True).lower() if value else ''
+    patterns = {
+        'quota': ('quota', 'resource_exhausted', 'resource exhausted'),
+        'rate_limit': ('rate limit', 'too many requests', '429'),
+        'authentication': ('unauthenticated', 'authentication required', 'invalid credential'),
+        'permission': ('permission', 'not allowed', 'access denied'),
+        'context_limit': ('context length', 'context window', 'token limit'),
+        'tool_limit': ('tool call limit', 'maximum number', 'max iterations', 'step limit'),
+        'tool_call': ('tool call', 'function call'),
+        'timeout': ('timeout', 'timed out', 'deadline'),
+        'unavailable': ('unavailable', '503', '502', 'overloaded'),
+        'internal': ('internal error', 'internal server', '500'),
+        'network': ('connection', 'network', 'fetch failed'),
+        'safety': ('safety', 'blocked content', 'prohibited'),
+    }
+    return [tag for tag, words in patterns.items() if any(word in text for word in words)]
+
+
 def stream_diagnostics(stdout):
     """Fixed protocol counters only; never retain any native text or identifiers."""
     data = {'events': 0, 'toolUpdates': 0, 'toolSteps': 0, 'invalidIndexes': 0,
-            'terminalStatus': None, 'turns': None, 'answerBytes': None, 'nativeError': False}
+            'terminalStatus': None, 'turns': None, 'answerBytes': None, 'nativeError': False,
+            'nativeErrorTags': [], 'nativeDurationSeconds': None, 'toolErrorUpdates': 0}
     indexes = set()
     for line in stdout.splitlines():
         try:
@@ -21,6 +42,7 @@ def stream_diagnostics(stdout):
                 step = event.get('step_update') or {}
                 if step.get('step_type') == 'tool':
                     data['toolUpdates'] += 1
+                    if (step.get('tool_info') or {}).get('error'): data['toolErrorUpdates'] += 1
                     index = step.get('step_index')
                     if type(index) is int and index >= 0: indexes.add(index)
                     else: data['invalidIndexes'] += 1
@@ -33,6 +55,9 @@ def stream_diagnostics(stdout):
                 response = final.get('response')
                 data['answerBytes'] = len(response.encode('utf-8')) if isinstance(response,str) else None
                 data['nativeError'] = bool(final.get('error'))
+                data['nativeErrorTags'] = native_error_tags(final.get('error'))
+                duration=final.get('duration_seconds')
+                if type(duration) in (int,float) and 0 <= duration <= 86400: data['nativeDurationSeconds']=round(duration,2)
         except (ValueError, TypeError, AttributeError, UnicodeError):
             continue
     data['toolSteps'] = len(indexes)
