@@ -2,10 +2,11 @@ import {createClient} from "npm:@supabase/supabase-js@2.49.1";
 import {MAX_ONBOARDING_BODY,OnboardingProblem,validateUserAction} from "./contracts.ts";
 import {onboardingMessage} from "./messages.ts";
 import {wakeConfig,advanceHostWake} from "./host-wake.ts";
+import {onboardingOrigins} from "./origins.ts";
 
 export async function onboardingHandler(req:Request){
  const origin=req.headers.get("Origin");
- const origins=(Deno.env.get("CLI_ONBOARDING_ORIGINS")??"http://127.0.0.1:5175").split(",").map(x=>x.trim()).filter(Boolean);
+ const origins=onboardingOrigins(Deno.env.get("CLI_ONBOARDING_ORIGINS"));
  const headers:Record<string,string>={"Content-Type":"application/json","Cache-Control":"no-store","Vary":"Origin"};
  if(origin&&origins.includes(origin))Object.assign(headers,{"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Headers":"authorization,apikey,content-type,x-client-info","Access-Control-Allow-Methods":"POST,OPTIONS"});
  const reply=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers});
