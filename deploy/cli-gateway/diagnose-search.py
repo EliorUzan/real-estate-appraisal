@@ -38,7 +38,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', required=True)
     parser.add_argument('--connection', required=True)
-    parser.add_argument('--task', choices=['unesco', 'hebrew-search'], default='unesco')
+    parser.add_argument('--task', choices=['unesco', 'hebrew-search', 'public-report'], default='unesco')
     args = parser.parse_args()
     config = Path(args.config)
     if not config.is_absolute() or config.is_symlink() or config.stat().st_mode & 0o077:
@@ -80,9 +80,13 @@ def main():
                 'Use search_web to look up the public Hadera city hall at Rothschild 21, Hadera, Israel. '
                 'Search in Hebrew for its address and neighborhood. Make at most three searches. '
                 'Return verified facts and source URLs in Hebrew. If a search fails, report that failure and stop.')
-            process.stdin.write(prompt_input('gemini', 'Diagnostic connectivity test.', task))
+            instructions = 'Diagnostic connectivity test.'
+            if args.task == 'public-report':
+                instructions = json.loads((Path(__file__).resolve().parents[2] / 'supabase/functions/appraisal/catalog.json').read_text())['defaultPrompt']
+                task = 'כתובת הנכס: רוטשילד 21, חדרה\n\nדוגמת סגנון (לא עובדות על הנכס החדש):\n\n\nבקשה נוספת:\n'
+            process.stdin.write(prompt_input('gemini', instructions, task))
             process.stdin.close()
-            deadline = time.monotonic() + 90
+            deadline = time.monotonic() + (600 if args.task == 'public-report' else 90)
             while process.poll() is None and time.monotonic() < deadline and not stdout.exceeded and not stderr.exceeded:
                 time.sleep(.1)
             state = engine.stop(name)
