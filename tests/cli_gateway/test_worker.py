@@ -17,6 +17,17 @@ from cli_gateway.egress import authority, public_addresses, Server
 
 
 class ParserTests(unittest.TestCase):
+    def test_failure_diagnostics_never_expose_native_content(self):
+        from cli_gateway.adapters.base import stream_diagnostics
+        secret='PRIVATE_SENTINEL'
+        events=[{'event':'step_update','step_update':{'step_type':'tool','step_index':1,'text_delta':secret}},
+                {'event':'result','result':{'status':'INTERRUPTED','num_turns':1,'response':secret,'error':secret}}]
+        report=stream_diagnostics('\n'.join(json.dumps(e) for e in events).encode())
+        self.assertNotIn(secret,json.dumps(report))
+        self.assertEqual(report['terminalStatus'],'INTERRUPTED')
+        self.assertEqual(report['toolSteps'],1)
+        self.assertEqual(report['answerBytes'],len(secret))
+
     def test_search_profile_accepts_native_search_but_rejects_other_tools(self):
         import hashlib
         from cli_gateway.research import PROFILE, AGENT_NAME

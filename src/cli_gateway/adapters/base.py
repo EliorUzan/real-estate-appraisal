@@ -8,6 +8,37 @@ from ..research import PROFILE, WEB_TOOLS, AGENT_NAME
 PROVIDERS = frozenset({"claude", "openai", "gemini"})
 
 
+def stream_diagnostics(stdout):
+    """Fixed protocol counters only; never retain any native text or identifiers."""
+    data = {'events': 0, 'toolUpdates': 0, 'toolSteps': 0, 'invalidIndexes': 0,
+            'terminalStatus': None, 'turns': None, 'answerBytes': None, 'nativeError': False}
+    indexes = set()
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+            data['events'] += 1
+            if event.get('event') == 'step_update':
+                step = event.get('step_update') or {}
+                if step.get('step_type') == 'tool':
+                    data['toolUpdates'] += 1
+                    index = step.get('step_index')
+                    if type(index) is int and index >= 0: indexes.add(index)
+                    else: data['invalidIndexes'] += 1
+            if event.get('event') == 'result':
+                final = event.get('result') or {}
+                state = final.get('status')
+                data['terminalStatus'] = state if state in ('SUCCESS','ERROR','CANCELED','CANCELLED','INTERRUPTED','TIMEOUT','INVALID','WAITING','RUNNING') else 'UNKNOWN'
+                turns = final.get('num_turns')
+                data['turns'] = turns if type(turns) is int and 0 <= turns <= 10000 else None
+                response = final.get('response')
+                data['answerBytes'] = len(response.encode('utf-8')) if isinstance(response,str) else None
+                data['nativeError'] = bool(final.get('error'))
+        except (ValueError, TypeError, AttributeError, UnicodeError):
+            continue
+    data['toolSteps'] = len(indexes)
+    return data
+
+
 def invocation(provider, *, capability_profile=None):
     # Policy/config is baked into the approved image, never provided by a customer.
     if provider == "claude":
