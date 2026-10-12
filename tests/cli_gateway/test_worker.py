@@ -18,6 +18,8 @@ from cli_gateway.egress import authority, public_addresses, Server
 
 class ParserTests(unittest.TestCase):
     def test_research_runtime_is_bounded_and_other_profiles_unchanged(self):
+        import runpy
+        watchdog=runpy.run_path(str(Path(__file__).resolve().parents[2]/'deploy/cli-gateway/watchdog.py'))['runtime_limit']
         from cli_gateway.contracts import runtime_seconds
         from cli_gateway.research import PROFILE
         for provider, profile, seconds in [('gemini', PROFILE, 600), ('gemini', None, 300), ('openai', PROFILE, 300), ('claude', None, 300)]:
@@ -25,6 +27,9 @@ class ParserTests(unittest.TestCase):
             if provider == 'gemini':
                 command = invocation(provider, capability_profile=profile)
                 self.assertEqual(command[command.index('--print-timeout')+1], f'{seconds-30}s')
+                self.assertEqual(watchdog(command),seconds)
+        for command in (['agy'], ['agy','auth','login'], ['codex','exec'], ['agy','--agent']):
+            self.assertEqual(watchdog(command),300)
 
     def test_failure_diagnostics_never_expose_native_content(self):
         from cli_gateway.adapters.base import stream_diagnostics

@@ -61,6 +61,7 @@ def main():
     parser.add_argument('--mode',choices=['search','read','canary'],default='search')
     parser.add_argument('--connection', help='Explicit pending personal connection for an additional owned account')
     parser.add_argument('--revision', type=int)
+    parser.add_argument('--candidate', help='Private copy of the existing manifest with only a rebuilt image changed')
     args=parser.parse_args()
     if os.environ.get('CODESPACES')!='true':raise ValueError('Personal Codespaces only')
     values=dict(line.split('=',1) for line in private_file(args.config).read_text().splitlines() if line and not line.startswith('#'))
@@ -78,10 +79,22 @@ def main():
             connection = next((c for c in client.call('getMaintenance')['connections']
                 if c['id'] == args.connection and c['revision'] == args.revision
                 and c['provider'] == 'gemini' and c['status'] == 'pending_setup'), None)
-            if not connection: raise ValueError('Pending personal connection changed')
+            if not connection:
+                from cli_gateway.main import manifests
+                from cli_gateway.personal_accounts import load_account_bindings
+                bindings=load_account_bindings(values['CLI_MANIFEST_DIR'],manifests(values['CLI_MANIFEST_DIR']))
+                binding=next((b for b in bindings.values() if b['accountConnectionId']==args.connection and b['accountRevision']==args.revision),None)
+                if binding:connection={'runtimeRef':binding['personalRuntimeRef']}
+            if not connection: raise ValueError('Verified personal connection required')
             manifest = {**manifest, 'personalRuntimeRef': connection['runtimeRef']}
         elif args.revision is not None:
             raise ValueError('Revision requires an explicit connection')
+        if args.candidate:
+            candidate=json.loads(private_file(args.candidate).read_text())
+            original=json.loads(private_file(str(Path(values['CLI_MANIFEST_DIR'])/'gemini-personal.json')).read_text())
+            if set(candidate)!=set(original) or any(candidate[k]!=v for k,v in original.items() if k!='image'):
+                raise ValueError('Rebuild probe may change only the image')
+            manifest={**manifest,'image':candidate['image']}
         selected_policy=json.loads(json.dumps(POLICY))
         if args.mode=='read':selected_policy['permissions']['allow']=['read_url(*)']
         policy=json.dumps(selected_policy,sort_keys=True).encode()
