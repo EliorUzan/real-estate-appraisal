@@ -200,11 +200,13 @@ class Runner:
         started = time.monotonic()
         last_contact, next_heartbeat = started, started + HEARTBEAT_SECONDS
         failure = None
+        failure_detail = None
         try:
             while process.poll() is None:
                 now = time.monotonic()
                 if stdout.exceeded or stderr.exceeded:
                     failure = "OUTPUT_LIMIT"
+                    failure_detail = "stdout_bytes" if stdout.exceeded else "stderr_bytes"
                     break
                 if now - started >= RUNTIME_SECONDS:
                     failure = "TIMEOUT"
@@ -235,6 +237,7 @@ class Runner:
             writer.join(timeout=1)
         if stdout.exceeded or stderr.exceeded:
             failure = "OUTPUT_LIMIT"
+            failure_detail = "stdout_bytes" if stdout.exceeded else "stderr_bytes"
         if failure:
             result = Result(error=failure)
         else:
@@ -258,6 +261,14 @@ class Runner:
                         'toolNames':sorted(set(names)),'toolUpdates':len(names)}),flush=True)
             except GatewayError as exc:
                 result = Result(error=exc.code)
+                failure_detail = exc.detail
+        if result.error:
+            # Numeric counters and fixed categories only: no native output,
+            # queries, prompts, stderr, tokens, or exception strings in logs.
+            categories = {"stdout_bytes", "stderr_bytes", "event_bytes", "answer_bytes", "tool_steps"}
+            print(json.dumps({'event': 'CLI_RUN_FAILED', 'jobId': job['jobId'],
+                'errorCode': result.error, 'limit': failure_detail if failure_detail in categories else None,
+                'stdoutBytes': len(stdout.data), 'stderrBytes': len(stderr.data)}), flush=True)
         return self._settle(ids, name, result)
 
     def _settle(self, ids, name, result):

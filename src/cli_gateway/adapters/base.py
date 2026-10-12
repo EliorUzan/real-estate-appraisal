@@ -30,7 +30,7 @@ def invocation(provider, *, capability_profile=None):
 
 def parse_result(provider, stdout: bytes, stderr: bytes, exit_code: int, *, tool_registry_digest=None, capability_profile=None):
     if len(stdout) > MAX_STDOUT or len(stderr) > MAX_STDERR:
-        raise GatewayError("OUTPUT_LIMIT")
+        raise GatewayError("OUTPUT_LIMIT", detail="stdout_bytes" if len(stdout) > MAX_STDOUT else "stderr_bytes")
     # Do not classify auth/quota from free-form stderr; changes must have tested fixtures.
     if exit_code != 0:
         raise GatewayError("TIMEOUT" if exit_code == 124 else "CLI_FAILED")
@@ -69,14 +69,15 @@ def _antigravity(decoded, tool_registry_digest=None, capability_profile=None):
     research = capability_profile == PROFILE
     if research and tool_registry_digest is None:
         raise ValueError()
-    tool_steps = 0
+    tool_steps = set()
+    unindexed_tool_updates = 0
     final = None
     initialized = False
     for line in decoded.splitlines():
         if not line.strip():
             continue
         if len(line.encode("utf-8")) > MAX_EVENT:
-            raise GatewayError("OUTPUT_LIMIT")
+            raise GatewayError("OUTPUT_LIMIT", detail="event_bytes")
         event = json.loads(line)
         if not isinstance(event, dict) or final is not None:
             raise ValueError()
@@ -111,9 +112,18 @@ def _antigravity(decoded, tool_registry_digest=None, capability_profile=None):
                 if (not research or step.get('step_type') != 'tool' or not isinstance(info, dict)
                     or info.get('name') not in WEB_TOOLS or step.get('tool_name') != info['name']):
                     raise ValueError()
-                tool_steps += 1
-                if tool_steps > 64:
-                    raise GatewayError('OUTPUT_LIMIT')
+                # Native 1.3.3 emits multiple updates (ACTIVE/DONE, etc.) for
+                # one indexed step. Count actual steps, not stream updates.
+                # Still validate the tool policy on every update above.
+                index = step.get('step_index')
+                if index is None:
+                    unindexed_tool_updates += 1
+                elif type(index) is not int or index < 0:
+                    raise ValueError()
+                else:
+                    tool_steps.add(index)
+                if len(tool_steps) + unindexed_tool_updates > 64:
+                    raise GatewayError('OUTPUT_LIMIT', detail='tool_steps')
         elif kind == "result":
             final = event.get("result")
             if not isinstance(final, dict) or final.get("status") != "SUCCESS" or final.get("error") or type(final.get("num_turns")) is not int or final["num_turns"] != 1:

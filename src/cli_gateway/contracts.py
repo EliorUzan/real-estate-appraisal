@@ -15,8 +15,9 @@ ERROR_CODES = frozenset({"AUTH_REQUIRED", "PLAN_REQUIRED", "QUOTA_EXCEEDED", "TI
 
 
 class GatewayError(Exception):
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, detail: str | None = None):
         self.code = code
+        self.detail = detail
         super().__init__(code)
 
 
@@ -43,7 +44,7 @@ def answer(value):
     if not isinstance(value, str) or not value.strip():
         raise GatewayError("INVALID_OUTPUT")
     if len(value.encode("utf-8")) > MAX_ANSWER:
-        raise GatewayError("OUTPUT_LIMIT")
+        raise GatewayError("OUTPUT_LIMIT", detail="answer_bytes")
     return value
 
 

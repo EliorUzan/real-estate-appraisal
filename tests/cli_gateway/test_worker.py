@@ -36,6 +36,16 @@ class ParserTests(unittest.TestCase):
         for changed in ({'subagent_info':{'id':'other'}},{'tool_name':'view_file'}, {'tool_call':{'name':'search_web'}}):
             with self.assertRaises(GatewayError):parse([init,{**step,'step_update':{**step['step_update'],**changed}},final])
         with self.assertRaises(GatewayError):parse([init]+[step]*65+[final])
+        indexed={**step,'step_update':{**step['step_update'],'step_index':2}}
+        # A normal long stream can update one search many times.
+        self.assertIn('https://',parse([init]+[indexed]*200+[final]).text)
+        distinct=[{**step,'step_update':{**step['step_update'],'step_index':i}} for i in range(65)]
+        with self.assertRaises(GatewayError) as exceeded:parse([init]+distinct+[final])
+        self.assertEqual(exceeded.exception.detail,'tool_steps')
+        for index in (-1,True,'2'):
+            with self.assertRaises(GatewayError):parse([init,{**step,'step_update':{**step['step_update'],'step_index':index}},final])
+        forbidden={**indexed,'step_update':{**indexed['step_update'],'tool_name':'view_file','tool_info':{'name':'view_file'}}}
+        with self.assertRaises(GatewayError):parse([init,indexed,forbidden,final])
         with self.assertRaises(GatewayError):parse_result('gemini',encode([init,step,final]),b'',0,capability_profile=PROFILE)
         with self.assertRaises(GatewayError):parse_result('gemini',encode([init,step,final]),b'',0,tool_registry_digest=digest)
         self.assertEqual(invocation('gemini',capability_profile=PROFILE)[-1],AGENT_NAME)
