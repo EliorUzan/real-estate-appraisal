@@ -59,6 +59,11 @@ class ParserTests(unittest.TestCase):
         def parse(events,**kwargs):return parse_result('gemini',encode(events),b'',0,
             tool_registry_digest=digest,capability_profile=PROFILE,**kwargs)
         self.assertIn('https://',parse([init,step,final]).text)
+        failed={'event':'result','result':{'status':'ERROR','num_turns':1,'response':'partial answer','error':'synthetic native failure'}}
+        with self.assertRaises(GatewayError) as native_error:parse([init,step,failed])
+        self.assertEqual(native_error.exception.code,'CLI_FAILED')
+        with self.assertRaises(GatewayError) as extra_event:parse([init,step,failed,final])
+        self.assertEqual(extra_event.exception.code,'INVALID_OUTPUT')
         for name in ('read_url_content','view_file','run_command','mcp_maps/search_places'):
             forbidden={**step,'step_update':{**step['step_update'],'tool_name':name,'tool_info':{'name':name}}}
             with self.assertRaises(GatewayError):parse([init,forbidden,final])

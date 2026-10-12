@@ -182,11 +182,18 @@ def _antigravity(decoded, tool_registry_digest=None, capability_profile=None):
                     raise GatewayError('OUTPUT_LIMIT', detail='tool_steps')
         elif kind == "result":
             final = event.get("result")
-            if not isinstance(final, dict) or final.get("status") != "SUCCESS" or final.get("error") or type(final.get("num_turns")) is not int or final["num_turns"] != 1:
+            if (not isinstance(final, dict) or final.get("status") not in ('SUCCESS', 'ERROR')
+                or type(final.get("num_turns")) is not int or final["num_turns"] != 1):
                 raise ValueError()
         else:
             raise ValueError()
     if not initialized or final is None:
+        raise ValueError()
+    # A valid native failure envelope is an agent execution failure, even when
+    # the attach process exits zero. Never publish its partial response.
+    if final['status'] == 'ERROR':
+        raise GatewayError('CLI_FAILED')
+    if final.get('error'):
         raise ValueError()
     usage = final.get("usage") or {}
     # This envelope does not guarantee a resolved model field.
