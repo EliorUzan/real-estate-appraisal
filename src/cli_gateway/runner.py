@@ -8,7 +8,7 @@ import threading
 import time
 from .adapters import invocation, parse_result, prompt_input
 from .adapters.base import stream_diagnostics
-from .contracts import GatewayError, Result, MAX_STDOUT, MAX_STDERR, HEARTBEAT_SECONDS, LEASE_MARGIN_SECONDS, RUNTIME_SECONDS
+from .contracts import GatewayError, Result, MAX_STDOUT, MAX_STDERR, HEARTBEAT_SECONDS, LEASE_MARGIN_SECONDS, runtime_seconds
 from .network import controls as network_controls
 from .research import PROFILE as RESEARCH_PROFILE, POLICY as RESEARCH_POLICY, AGENT as RESEARCH_AGENT, AGENT_NAME as RESEARCH_AGENT_NAME
 
@@ -209,7 +209,7 @@ class Runner:
                     failure = "OUTPUT_LIMIT"
                     failure_detail = "stdout_bytes" if stdout.exceeded else "stderr_bytes"
                     break
-                if now - started >= RUNTIME_SECONDS:
+                if now - started >= runtime_seconds(job['provider'], manifest.get('capabilityProfile')):
                     failure = "TIMEOUT"
                     break
                 if now - last_contact >= 60 - LEASE_MARGIN_SECONDS:

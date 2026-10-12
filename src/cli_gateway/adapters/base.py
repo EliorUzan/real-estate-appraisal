@@ -2,7 +2,7 @@
 import hashlib
 import json
 import re
-from ..contracts import GatewayError, Result, MAX_STDOUT, MAX_STDERR, MAX_EVENT, answer, count, model
+from ..contracts import GatewayError, Result, MAX_STDOUT, MAX_STDERR, MAX_EVENT, answer, count, model, runtime_seconds
 from ..research import PROFILE, WEB_TOOLS, AGENT_NAME
 
 PROVIDERS = frozenset({"claude", "openai", "gemini"})
@@ -55,7 +55,7 @@ def invocation(provider, *, capability_profile=None):
         # 'gemini' is the stable Google slot in the API/database. Its native
         # runtime is Antigravity; one framed stdin turn avoids prompt arguments.
         return ["agy", "--input-format", "stream-json", "--output-format", "stream-json",
-                "--print-timeout", "270s", "--disable-slash-commands", "--log-file", "/dev/null", '--agent', AGENT_NAME if capability_profile == PROFILE else 'cli-gateway-text']
+                "--print-timeout", f"{runtime_seconds(provider, capability_profile) - 30}s", "--disable-slash-commands", "--log-file", "/dev/null", '--agent', AGENT_NAME if capability_profile == PROFILE else 'cli-gateway-text']
     raise GatewayError("INVALID_OUTPUT")
 
 

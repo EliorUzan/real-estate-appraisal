@@ -17,6 +17,15 @@ from cli_gateway.egress import authority, public_addresses, Server
 
 
 class ParserTests(unittest.TestCase):
+    def test_research_runtime_is_bounded_and_other_profiles_unchanged(self):
+        from cli_gateway.contracts import runtime_seconds
+        from cli_gateway.research import PROFILE
+        for provider, profile, seconds in [('gemini', PROFILE, 600), ('gemini', None, 300), ('openai', PROFILE, 300), ('claude', None, 300)]:
+            self.assertEqual(runtime_seconds(provider, profile), seconds)
+            if provider == 'gemini':
+                command = invocation(provider, capability_profile=profile)
+                self.assertEqual(command[command.index('--print-timeout')+1], f'{seconds-30}s')
+
     def test_failure_diagnostics_never_expose_native_content(self):
         from cli_gateway.adapters.base import stream_diagnostics
         secret='PRIVATE_SENTINEL'

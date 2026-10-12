@@ -13,6 +13,10 @@ begin
  perform public.cli_worker_action(host,'reportConnection',jsonb_build_object('connectionId',conn,'revision',1,'status','connected'));
  if not public.cli_authenticate_host(host,repeat('e',64)) or public.cli_authenticate_host(host,repeat('f',64)) then raise exception 'Host credential scope failed'; end if;
  for i in 1..12 loop
+   if i=12 then
+     update private.cli_providers set enabled=true,manifest_digest=repeat('d',64) where provider_id='claude';
+     update private.cli_connections set provider_id='claude' where id=conn;
+   end if;
    request:=gen_random_uuid();
    b:=jsonb_build_object('requestId',request,'connectionId',conn,'workspaceId',team,'address','Synthetic property','example','Style only','additionalRequest','',
      'requestHash',repeat('a',64),'instructions','Synthetic instructions','inputText','Synthetic input','promptVersion',0,'payloadDigest',repeat('b',64));
@@ -29,6 +33,9 @@ begin
    claimed:=jsonb_build_object('jobId',job,'attemptNumber',1,'leaseToken',claimed->>'leaseToken','containerRef','cli-job-'||job::text||'-1');
    if public.cli_worker_action(host,'authorizeStart',claimed)->>'authorized'<>'true' then raise exception 'Start denied'; end if;
    if public.cli_worker_action(host,'authorizeStart',claimed)->>'authorized'<>'false' then raise exception 'Second start authorized'; end if;
+   if abs(extract(epoch from (select run_deadline_at-launch_authorized_at from private.cli_job_state where job_id=job))-(case when i=12 then 300 else 600 end))>0.01 then raise exception 'Provider runtime deadline incorrect';end if;
+   perform public.cli_worker_action(host,'heartbeatJob',claimed);
+   if abs(extract(epoch from (select run_deadline_at-launch_authorized_at from private.cli_job_state where job_id=job))-(case when i=12 then 300 else 600 end))>0.01 then raise exception 'Heartbeat renewed deadline';end if;
    result:=jsonb_build_object('text','Synthetic answer '||i,'model',null,'inputTokens',null,'outputTokens',null,'errorCode',null);
    b:=claimed||jsonb_build_object('stopped',true,'result',result,'resultDigest',repeat('c',64));
    if i=2 then perform public.cli_user_action(owner_id,'cancelCliJob',jsonb_build_object('jobId',job)); end if;
@@ -44,6 +51,7 @@ begin
    if exists(select 1 from private.cli_job_payloads where job_id=job) then raise exception 'Prompt snapshot retained after acknowledgement'; end if;
    if exists(select 1 from private.cli_hosts where id=host and active_job_id is not null) then raise exception 'Stopped slot not released'; end if;
  end loop;
+ update private.cli_connections set provider_id='gemini' where id=conn;
  if (select count(*) from public.generation_jobs where workspace_id=team and deleted_at is null)<>10 then raise exception 'Retention count failed'; end if;
  if exists(select 1 from public.generation_jobs where id=first_job and (deleted_at is null or output_text is not null)) then raise exception 'Old output retained'; end if;
  -- Late success after lease expiry is discarded, and remains a repeatable receipt.
