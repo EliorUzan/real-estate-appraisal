@@ -1,7 +1,8 @@
 """Bounded, operator-only search check using an already approved account home.
 
-Requires a drained, idle worker and its exclusive lock. Emits fixed counters and
-error categories only. Does not save native output or change runtime approvals.
+Requires a drained, idle worker and its exclusive lock. Runs only fixed public
+tasks and emits counters plus bounded, redacted error details for operator use.
+Never use this diagnostic for customer prompts. Does not change approvals.
 """
 import argparse
 import json
@@ -93,10 +94,11 @@ def main():
             process.wait(timeout=10)
             for thread in readers: thread.join(timeout=5)
             raw = bytes(stdout.data)
-            tools = []
+            tools, finals = [], []
             for line in raw.splitlines():
                 try: event = json.loads(line)
                 except ValueError: continue
+                if event.get('event') == 'result': finals.append(event.get('result') or {})
                 step = event.get('step_update') or {}
                 if step.get('step_type') != 'tool': continue
                 info = step.get('tool_info') or {}
@@ -112,8 +114,6 @@ def main():
                     done=step.get('state') == 'DONE', categories=categories,
                     outputPresent=bool(info.get('output')),
                     errorDetail=diagnostic_text(info['error']) if info.get('error') else None))
-            finals = [json.loads(line).get('result', {}) for line in raw.splitlines()
-                      if line.startswith(b'{') and json.loads(line).get('event') == 'result']
             try:
                 result = parse_result('gemini', raw, bytes(stderr.data), state.get('ExitCode'),
                     tool_registry_digest=manifest['toolRegistryDigest'], capability_profile=manifest['capabilityProfile'])
