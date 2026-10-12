@@ -46,10 +46,13 @@ def main():
         if engine.inventory() or Journal(data / 'journal').load() or client.call('getAssignment').get('job'):
             raise ValueError('Idle runtime required')
         if not client.call('heartbeatHost', manifests=[]).get('drain'): raise ValueError('Drain host first')
-        account = next(c for c in client.call('getMaintenance')['connections']
-                       if c['id'] == args.connection and c['provider'] == 'gemini' and c['status'] == 'connected')
+        # getMaintenance deliberately omits connected accounts. Select only an
+        # explicitly operator-approved additional-account binding; never accept
+        # a volume name or credentials from the command line.
+        account = next(entry for entry in bindings.values()
+                       if entry['accountConnectionId'] == args.connection and entry['provider'] == 'gemini')
         job = dict(jobId=str(uuid.uuid4()), attemptNumber=1, provider='gemini',
-                   runtimeRef=account['runtimeRef'], manifestDigest=digest)
+                   runtimeRef=account['personalRuntimeRef'], manifestDigest=digest)
         manifest = manifest_for_job(job, base, bindings)
         name = engine.create(job, manifest)
         try:
