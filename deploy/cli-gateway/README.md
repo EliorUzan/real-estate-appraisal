@@ -87,7 +87,7 @@ Disconnecting in the app fences queued/active work, then the supervisor removes 
 
 ## Recovery, retention and maintenance
 
-There is one global active attempt. A stopped container is created before start authorization; the supervisor durably records start intent before the sole Docker start call. On restart it **reads** the assignment, stops old containers, reconciles and drains for operator review. It never restarts an exited container or replays inference automatically. The image has an independent five-minute watchdog; the supervisor stops before an unrenewed lease expires. Unknown containers or uncertain outcomes quarantine the host.
+There is one global active attempt. A stopped container is created before start authorization; the supervisor durably records start intent before the sole Docker start call. On restart it **reads** the assignment, stops old containers, reconciles and drains for operator review. It never restarts an exited container or replays inference automatically. The image has an independent five-minute watchdog (ten minutes only for the fixed Antigravity research invocation; native print timeout 570 seconds); the supervisor stops before an unrenewed lease expires. Unknown containers or uncertain outcomes quarantine the host.
 
 Completion is sent only after the engine confirms stop. A lost acknowledgement retries the same completion; successful output and revision 1 are saved atomically. Cancellation that commits first suppresses output. Prompt snapshots are scrubbed after completion; section history retains ten completed payloads and small receipts survive pruning. Results lost across a crash become `needs_review` rather than consuming quota again.
 
