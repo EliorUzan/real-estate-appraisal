@@ -20,18 +20,22 @@ function json(s: string): RecordValue {
 }
 
 export type TransactionQuery = {
+  scope?: "imported" | "neighborhood";
   address: string; description: string; rooms: number | null; area: number | null;
   startDate: string; endDate: string; radiusMeters: number; dealType: "both" | "new" | "used"; limit: number;
 };
 export type Transaction = {
+  parcel?: string | null; sourceUrl?: string;
   id: string; address: string | null; date: string | null; rooms: number | null; area: number | null;
   amount: number | null; pricePerSqm: number | null; distanceMeters: number | null; propertyType: string | null;
   floor: string | null; sourceKind: string; similarity: number | null; coverage: number;
   comparison: string[]; missing: string[]; aiReason: string;
 };
 export type TransactionResult = {
+  collection?: { sourceAddress: string; neighborhood: string; pagesCollected: number; totalRows: number; collectedRows: number; complete: boolean };
+  sourceUrl?: string; analyzedCount?: number; keyPoints?: { text: string; transactionIds: string[] }[];
   query: TransactionQuery; transactions: Transaction[]; retrievedAt: string; provider: string; model: string;
-  source: "Nadlan MCP / GovMap" | "GovMap / איסוף בדפדפן"; candidateCount: number; warnings: string[];
+  source: "Nadlan MCP / GovMap" | "GovMap / איסוף בדפדפן" | "ייבוא משתמש / Nadlan" | "Nadlan / איסוף בדפדפן"; candidateCount: number; warnings: string[];
 };
 
 export function validateTransactionInput(value: unknown): RecordValue {
@@ -107,7 +111,8 @@ export function scoreTransaction(t: Transaction, q: TransactionQuery, qualitativ
   if (q.area !== null) part(35, t.area === null ? null : 1 - Math.abs(t.area - q.area) / q.area, "שטח", `שטח: ${t.area ?? "לא ידוע"} מ״ר לעומת ${q.area} מ״ר`);
   if (q.rooms !== null) part(25, t.rooms === null ? null : 1 - Math.abs(t.rooms - q.rooms) / q.rooms, "חדרים", `חדרים: ${t.rooms ?? "לא ידוע"} לעומת ${q.rooms}`);
   const locationScore = t.sourceKind === "same_building" ? 1 : t.distanceMeters === null ? null : 1 - t.distanceMeters / q.radiusMeters;
-  part(25, locationScore, "מרחק", t.sourceKind === "same_building" ? "אותו בניין לפי המקור" : `מרחק לפי המקור (עשוי להיות מקורב): ${t.distanceMeters} מטרים`);
+  if (!q.scope) part(25, locationScore, "מרחק", t.sourceKind === "same_building" ? "אותו בניין לפי המקור" : `מרחק לפי המקור (עשוי להיות מקורב): ${t.distanceMeters} מטרים`);
+  else missing.push("המרחק מהנכס אינו מאומת");
   const range = Math.max(86400000, Date.parse(q.endDate) - Date.parse(q.startDate));
   part(15, t.date ? 1 - (Date.parse(q.endDate) - Date.parse(t.date)) / range : null, "תאריך", `מועד העסקה: ${t.date}`);
   if (q.description) part(20, qualitative === null ? null : qualitative / 100, "התאמה לתיאור החופשי", "התאמה לתיאור החופשי: הערכת AI לפי נתוני המקור בלבד");

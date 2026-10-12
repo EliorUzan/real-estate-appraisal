@@ -87,3 +87,13 @@ form button:disabled { cursor: wait; opacity: .7; }
 .transaction-table td:nth-child(5), .transaction-table td:nth-child(6) { white-space: nowrap; }
 .similarity-score { color: #0f6b5b; white-space: nowrap; }
 .similarity-method { padding: 0 16px; background: #f4f7f8; border-radius: 8px; }
+.import-preview { margin-top: 24px; }
+.import-table-scroll { max-height: 420px; }
+.import-table-scroll tr:target { background: #fff3cd; }
+.analysis-points { padding: 4px 20px 16px; background: #f2f9f7; border-inline-start: 3px solid #1f7a68; }
+.analysis-points li { margin-bottom: 16px; }
+.analysis-points li p { margin-bottom: 4px; }
+.cli-login-dialog{width:min(540px,calc(100vw - 32px));border:1px solid #d9e0e7;border-radius:14px;padding:24px;box-shadow:0 20px 80px #16263b40;max-height:85vh;overflow:auto}
+.cli-login-dialog::backdrop{background:#18283e80}
+.cli-login-dialog form{display:grid;gap:12px;margin:20px 0}
+.cli-provider-link{display:inline-block;padding:12px 18px;border-radius:8px;background:#155b96;color:#fff;text-decoration:none}

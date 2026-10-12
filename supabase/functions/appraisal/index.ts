@@ -1,7 +1,15 @@
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 import catalog from "./catalog.json" with { type: "json" };
 import { generationInput } from "./generation-input.ts";
-import { findNearbyTransactions, prepareDirectTransactionSearch, compareDirectTransactions, validateTransactionInput } from "./nearby-transactions.ts";
+import { cliAction } from "./cli-actions.ts";
+import {wakeQueuedJob} from "./queued-host-wake.ts";
+import {wakeConfig} from "../cli-onboarding/host-wake.ts";
+import {cliTransactionOutput,transactionReport} from './cli-evidence.ts';
+import { CLI_ACTIONS, CliProblem, errorBody } from "./cli-contracts.ts";
+import { findNearbyTransactions, prepareDirectTransactionSearch, compareDirectTransactions, validateTransactionInput, resolveQuery } from "./nearby-transactions.ts";
+import { analyzeImportedTransactions } from "./imported-transactions.ts";
+import { runNadlanAgent } from "./nadlan-agent.ts";
+import { collectNadlanTransactions, verifyCollection } from "./nadlan-browser.ts";
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -35,6 +43,10 @@ export async function handler(req: Request) {
     for (;;) { const {done,value}=await reader.read(); if(done)break; size+=value.length; if(size>15000000){await reader.cancel();throw new Problem(413,"Request exceeds the 10 MB file limit");} chunks.push(value); }
     const bytes=new Uint8Array(size); let offset=0; for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
     const b = JSON.parse(new TextDecoder().decode(bytes));
+    if (CLI_ACTIONS.has(b?.action)) {
+      try { const result=await cliAction(db,user.id,b,size,{collectorToken:Deno.env.get('NADLAN_BROWSER_TOKEN')});await wakeQueuedJob(db,user.id,result.data.job,wakeConfig(name=>Deno.env.get(name)));return reply(result.data,result.status); }
+      catch(error){return reply(errorBody(error,typeof b.requestId==="string"?b.requestId:undefined),error instanceof CliProblem?error.status:500);}
+    }
     const failDb = (error: unknown) => { if(error) throw new Problem(500,"Database operation failed. Changes were not confirmed."); };
     if (b.action === "createUser") {
       if(!members.some(m=>m.workspace_id===b.workspace && m.role==="admin"))throw new Problem(403,"Only a workspace administrator can create users.");
@@ -57,7 +69,7 @@ export async function handler(req: Request) {
         db.from("profiles").select("default_provider").eq("user_id",user.id).maybeSingle(),
       ]);
       failDb(settings.error || prompts.error || profile.error);
-      return reply({settings:settings.data,prompts:prompts.data,members,defaultProvider:profile.data?.default_provider ?? "openai",nadlanConfigured:!!Deno.env.get("NADLAN_MCP_URL")});
+      return reply({settings:settings.data,prompts:prompts.data,members,defaultProvider:profile.data?.default_provider ?? "openai",nadlanConfigured:!!Deno.env.get("NADLAN_MCP_URL"),nadlanBrowserConfigured:!!Deno.env.get("NADLAN_BROWSER_URL") && !!Deno.env.get("NADLAN_BROWSER_TOKEN")});
     }
     if (b.action === "saveProvider") {
       check(catalog.providers.some(p=>p.id===b.provider), "Unknown provider");
@@ -83,8 +95,8 @@ export async function handler(req: Request) {
       return reply({section_id:b.section,content,version:b.version+1});
     }
     if (b.action === "history") {
-      const results=await Promise.all(members.flatMap(m=>["environment_description","plot_description"].map(section=>
-        db.from("generation_jobs").select("id,address,section_id,workspace_id,provider_id,model_id,status,error_code,created_at,owner_id")
+      const results=await Promise.all(members.flatMap(m=>["environment_description","plot_description","comparable_sales"].map(section=>
+        db.from("generation_jobs").select("id,address,section_id,workspace_id,provider_id,model_id,status,error_code,created_at,owner_id,execution_mode,resolved_model_id")
           .eq("workspace_id",m.workspace_id).eq("section_id",section).is("deleted_at",null)
           .order("created_at",{ascending:false}).order("id",{ascending:false}).limit(10))));
       results.forEach(r=>failDb(r.error));
@@ -93,14 +105,23 @@ export async function handler(req: Request) {
     if (b.action === "historyDetail") {
       const id=field(b.id,36,true);
       check(/^[0-9a-f-]{36}$/.test(id),"Invalid history id");
-      const {data,error}=await db.from("generation_jobs").select("id,output_text,plot_evidence,additional_request")
+      const {data,error}=await db.from("generation_jobs").select("id,output_text,plot_evidence,additional_request,section_id,provider_id,resolved_model_id,cli_context")
         .eq("id",id).in("workspace_id",members.map(m=>m.workspace_id)).is("deleted_at",null).maybeSingle();
       failDb(error);
       if(!data)throw new Problem(404,"הרשומה אינה זמינה או הוסרה בהתאם למגבלת ההיסטוריה. רעננו את הרשימה.");
-      return reply({job:data});
+      if(data.section_id==='comparable_sales'&&data.output_text){
+        try{const result=await cliTransactionOutput(data.cli_context,data.output_text,data.provider_id,data.resolved_model_id);return reply({job:{id:data.id,output_text:transactionReport(result),plot_evidence:null,additional_request:data.additional_request,transaction_result:result}});}
+        catch{return reply({job:{id:data.id,output_text:null,plot_evidence:null,additional_request:data.additional_request,analysis_error:'תשובת הסוכן לא עברה אימות מול עסקאות המקור.'}});}
+      }
+      const {cli_context:_context,...detail}=data;void _context;return reply({job:detail});
     }
-    if (["nearbyTransactions", "prepareNearbyTransactions", "compareNearbyTransactions"].includes(b.action)) {
-      check(b.consent === true, "יש לאשר שליחת נתוני החיפוש ל־GovMap ולספק AI.");
+    if (b.action === "collectNadlanTransactions") {
+      check(b.consent === true, "יש לאשר את האיסוף מ־Nadlan ואת שליחת הנתונים לספק AI.");
+      return reply(await collectNadlanTransactions(b, user.id, {endpoint:Deno.env.get("NADLAN_BROWSER_URL") ?? "",token:Deno.env.get("NADLAN_BROWSER_TOKEN") ?? ""}));
+    }
+    if (["nearbyTransactions", "prepareNearbyTransactions", "compareNearbyTransactions", "analyzeImportedTransactions", "analyzeNadlanAgent"].includes(b.action)) {
+      check(b.consent === true, "יש לאשר את שליחת הנתונים לספקים המוצגים בטופס.");
+      if(b.action==='prepareNearbyTransactions'&&b.executionMode==='cli')return reply(resolveQuery(validateTransactionInput(b.query),{}));
       check(catalog.providers.some(p => p.id === b.provider), "Unknown provider");
       const model = field(b.model, 160, true);
       const query = validateTransactionInput(b.query);
@@ -108,6 +129,11 @@ export async function handler(req: Request) {
       failDb(secret.error);
       check(secret.data, "יש לשמור מפתח API לספק הנבחר בהגדרות.");
       const aiOptions = { provider: b.provider, model, key: secret.data };
+      if (b.action === "analyzeImportedTransactions" || b.action === "analyzeNadlanAgent") {
+        const collection = b.collectionProof === undefined ? undefined : await verifyCollection(b.collectionProof, b.table, b.sourceUrl, user.id, Deno.env.get("NADLAN_BROWSER_TOKEN") ?? "");
+        const analyze = b.action === "analyzeNadlanAgent" ? runNadlanAgent : analyzeImportedTransactions;
+        return reply(await analyze({ query, sourceUrl: b.sourceUrl, table: b.table }, aiOptions, { collection }));
+      }
       if (b.action === "prepareNearbyTransactions") return reply(await prepareDirectTransactionSearch(query, aiOptions));
       if (b.action === "compareNearbyTransactions") return reply(await compareDirectTransactions(query, b.evidence, aiOptions));
       // This is an ephemeral appraiser helper, never a generation_job or report revision.

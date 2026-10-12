@@ -1,0 +1,20 @@
+{
+  "protocol": "antigravity-login-v1",
+  "version": "1.3.3",
+  "nativeProtocolVerified": false,
+  "customerReleaseApproved": false,
+  "inferenceManifestDigest": "REQUIRED_REVIEWED_INFERENCE_MANIFEST_SHA256",
+  "personalRuntimeRef": "REQUIRED_EXACT_PERSONAL_HOME",
+  "image": "REQUIRED_IMMUTABLE_REVIEWED_IMAGE",
+  "network": "cli-login-gemini",
+  "protocolFile": "/etc/cli-gateway/login-protocol.json",
+  "protocolDigest": "REQUIRED_PROTOCOL_SHA256",
+  "egressFile": "/etc/cli-gateway/login-egress.json",
+  "egressDigest": "REQUIRED_LOGIN_EGRESS_SHA256",
+  "verificationSettingsFile": "/etc/cli-gateway/antigravity-settings.json",
+  "verificationPolicyDigest": "REQUIRED_TEXT_ONLY_POLICY_SHA256",
+  "verificationAgentFile": "/etc/cli-gateway/antigravity-text-agent.md",
+  "verificationAgentDigest": "REQUIRED_TEXT_ONLY_AGENT_SHA256",
+  "evidenceFile": "/etc/cli-gateway/login-evidence.json",
+  "evidenceDigest": "REQUIRED_NATIVE_LOGIN_EVIDENCE_SHA256"
+}

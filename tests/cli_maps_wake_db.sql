@@ -1,0 +1,39 @@
+begin;
+do $$
+declare u uuid:=gen_random_uuid();other uuid:=gen_random_uuid();w uuid:=gen_random_uuid();host uuid:=gen_random_uuid();
+ conn uuid;session uuid;lease uuid;challenge uuid:=gen_random_uuid();key_id uuid:=gen_random_uuid();submission uuid:=gen_random_uuid();body jsonb;envelope jsonb;r jsonb;
+begin
+ insert into auth.users(id) values(u),(other);insert into public.workspaces(id,name) values(w,'Maps/wake synthetic');
+ insert into public.workspace_members(workspace_id,user_id,status) values(w,u,'active'),(w,other,'active');
+ insert into private.cli_hosts(id,enabled,token_hash,status,last_seen_at,manifests,setup_protocol) values(host,true,repeat('e',64),'ready',clock_timestamp(),jsonb_build_array(repeat('d',64)),'maps-setup-v1');
+ update private.cli_providers set enabled=true,manifest_digest=repeat('d',64) where provider_id='gemini';
+ insert into private.cli_connections(owner_id,provider_id,host_id,status,native_authenticated_at,verification_status,verified_manifest_digest) values(u,'gemini',host,'connected',clock_timestamp(),'passed',repeat('d',64)) returning id into conn;
+ insert into private.cli_onboarding_config(host_id,allowed_owners,wake_enabled,operator_owners,maps_provisioning_enabled) values(host,array[u],true,array[u],true);
+ if public.cli_maps_user_action(other,'getMapsDemoSetup','{}')->>'operator'<>'false' then raise exception 'Ordinary member became operator';end if;
+ begin perform public.cli_maps_user_action(other,'startMapsDemoSetup',jsonb_build_object('requestId',gen_random_uuid()));raise exception 'Missing operator check';exception when others then if sqlerrm<>'OPERATOR_REQUIRED' then raise;end if;end;
+ session:=(public.cli_maps_user_action(u,'startMapsDemoSetup',jsonb_build_object('requestId',gen_random_uuid()))->'session'->>'id')::uuid;
+ r:=public.cli_maps_worker_action(host,'claimSetup','{}')->'setup';lease:=(r->>'leaseToken')::uuid;body:=jsonb_build_object('sessionId',session,'leaseToken',lease);
+ if public.cli_worker_action(host,'claim','{}')->'job'<>'null'::jsonb then raise exception 'Inference entered Maps slot';end if;
+ perform public.cli_maps_worker_action(host,'publishSetupChallenge',body||jsonb_build_object('challengeId',challenge,'keyId',key_id,'publicKeyJwk','{"kty":"RSA","n":"synthetic","e":"AQAB"}'::jsonb));
+ envelope:=jsonb_build_object('version',1,'algorithm','RSA-OAEP-3072-SHA256+A256GCM','keyId',key_id,'wrappedKey','synthetic','iv','synthetic','ciphertext','synthetic');
+ perform public.cli_maps_user_action(u,'submitMapsDemoKey',jsonb_build_object('sessionId',session,'challengeId',challenge,'submissionId',submission,'envelope',envelope));
+ r:=public.cli_maps_worker_action(host,'consumeSetupSecret',body||jsonb_build_object('submissionId',submission));
+ if r->>'alreadyConsumed'<>'false' or (select stored.envelope from private.cli_setup_sessions stored where id=session) is not null then raise exception 'Maps mailbox retained';end if;
+ r:=public.cli_maps_worker_action(host,'completeSetup',body||jsonb_build_object('exclusive',true,'outcome','saved','errorCode',null,'receiptDigest',repeat('f',64)));
+ if r->>'state'<>'succeeded' or (select maps_status from private.cli_onboarding_config where host_id=host)<>'compatibility_pending' then raise exception 'Maps activated without compatibility approval';end if;
+ -- Wake works independently of the browser-login flag and never clears drain.
+ update private.cli_hosts set last_seen_at=clock_timestamp()-interval '1 minute' where id=host;
+ if public.cli_onboarding_user_action(u,'getCliOnboarding','{}')->>'nextAction'<>'start_host' then raise exception 'Saved connection could not request wake';end if;
+ r:=public.cli_host_wake_user_action(u,'ensureCliHostReady',jsonb_build_object('requestId',gen_random_uuid()));
+ if r->>'state'<>'requested' then raise exception 'Wake did not queue';end if;
+ r:=public.cli_host_wake_control('claim','{}')->'wake';body:=jsonb_build_object('operationId',r->>'operationId','leaseToken',r->>'leaseToken');
+ if public.cli_host_wake_control('markStart',body)->>'authorized'<>'true' or public.cli_host_wake_control('markStart',body)->>'authorized'<>'false' then raise exception 'Wake start was not at most once';end if;
+ if public.cli_host_wake_control('finish',body||'{"errorCode":null}')->>'state'<>'starting' then raise exception 'GitHub readiness replaced worker proof';end if;
+ update private.cli_hosts set last_seen_at=clock_timestamp() where id=host;
+ r:=public.cli_host_wake_control('claim','{}')->'wake';body:=jsonb_build_object('operationId',r->>'operationId','leaseToken',r->>'leaseToken');
+ if public.cli_host_wake_control('finish',body||'{"errorCode":null}')->>'state'<>'ready' then raise exception 'Fresh approved heartbeat ignored';end if;
+ update private.cli_hosts set status='quarantined' where id=host;
+ begin perform public.cli_host_wake_user_action(u,'ensureCliHostReady',jsonb_build_object('requestId',gen_random_uuid()));raise exception 'Quarantine cleared';exception when others then if sqlerrm<>'HOST_RECOVERY_REQUIRED' then raise;end if;end;
+ if has_function_privilege('authenticated','public.cli_maps_user_action(uuid,text,jsonb)','EXECUTE') or has_table_privilege('anon','private.cli_setup_sessions','SELECT') then raise exception 'Maps control exposed';end if;
+end $$;
+rollback;

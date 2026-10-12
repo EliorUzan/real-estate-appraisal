@@ -1,0 +1,14 @@
+project_id = "real-estate-appraisal"
+
+[functions.appraisal]
+verify_jwt = true
+
+[functions.cli-onboarding]
+verify_jwt = true
+
+# Each function enforces a distinct, mandatory server credential in its handler.
+[functions.cli-worker]
+verify_jwt = false
+
+[functions.cli-maintenance]
+verify_jwt = false

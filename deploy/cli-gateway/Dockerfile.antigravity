@@ -1,0 +1,20 @@
+# The official native Linux build is pinned by URL and SHA-512 in releases.json.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG CLI_URL
+ARG CLI_SHA512
+RUN apt-get update && apt-get install --no-install-recommends -y python3 tini ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && case "$CLI_URL" in https://storage.googleapis.com/antigravity-public/antigravity-cli/*/linux-x64/cli_linux_x64.tar.gz) true;; *) exit 1;; esac \
+    && test ${#CLI_SHA512} -eq 128 \
+    && curl --fail --location --proto '=https' --proto-redir '=https' "$CLI_URL" -o /tmp/agy.tar.gz \
+    && printf '%s  /tmp/agy.tar.gz\n' "$CLI_SHA512" | sha512sum --check --strict \
+    && tar -xzf /tmp/agy.tar.gz -C /usr/local/bin antigravity \
+    && mv /usr/local/bin/antigravity /usr/local/bin/agy \
+    && chmod 0555 /usr/local/bin/agy && rm /tmp/agy.tar.gz \
+    && usermod --login agent --home /home/agent --move-home node
+COPY deploy/cli-gateway/watchdog.py /opt/gateway/watchdog.py
+RUN chmod -R a-w /opt/gateway
+USER 1000:1000
+WORKDIR /work
+ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/opt/gateway/watchdog.py"]

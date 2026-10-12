@@ -4,7 +4,7 @@ export class Problem extends Error {
 }
 export const check = (value: unknown, message: string) => { if (!value) throw new Problem(400, message); };
 export type FileInput = { name: string; type: string; data: string; role: string };
-type Params = { provider: string; model: string; key: string; prompt: string; input: string; files: FileInput[]; search: boolean };
+type Params = { provider: string; model: string; key: string; prompt: string; input: string; files: FileInput[]; search: boolean; timeoutMs?: number };
 export async function callProvider(p: Params, fetcher = fetch): Promise<string> {
   let url: string;
   let auth: Record<string,string> = { Authorization: "Bearer " + p.key };
@@ -35,7 +35,7 @@ export async function callProvider(p: Params, fetcher = fetch): Promise<string> 
     url = p.provider === "moonshot" ? "https://api.moonshot.ai/v1/chat/completions" : "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions";
     body = {model:p.model,messages:[{role:"system",content:p.prompt},{role:"user",content:text}],max_tokens:6000};
   }
-  const response = await fetcher(url, {method:"POST",headers:{"Content-Type":"application/json",...auth},body:JSON.stringify(body),signal:AbortSignal.timeout(110000)});
+  const response = await fetcher(url, {method:"POST",headers:{"Content-Type":"application/json",...auth},body:JSON.stringify(body),signal:AbortSignal.timeout(p.timeoutMs ?? 110000)});
   // Never echo upstream bodies: they can contain credentials or source documents.
   if (!response.ok) {
     const failure = await response.json().catch(()=>null);

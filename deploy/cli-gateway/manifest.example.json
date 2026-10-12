@@ -1,0 +1,19 @@
+{
+  "provider": "gemini",
+  "cliRuntime": "antigravity",
+  "version": "REQUIRED_EXACT_RELEASE",
+  "image": "REQUIRED_IMAGE@sha256:REQUIRED_64_HEX_DIGEST",
+  "network": "cli-provider-gemini",
+  "egressFile": "/etc/cli-gateway/egress/gemini.json",
+  "egressDigest": "REQUIRED_RELAY_REPORT_SHA256",
+  "policyDigest": "REQUIRED_POLICY_DIGEST",
+  "settingsFile": "/etc/cli-gateway/policy/antigravity-settings.json",
+  "agentFile": "/etc/cli-gateway/policy/antigravity-text-agent.md",
+  "agentDigest": "REQUIRED_AGENT_DEFINITION_SHA256",
+  "authMode": "native-account",
+  "executionHostMode": "rootless-vm",
+  "evidenceFile": "/etc/cli-gateway/evidence/gemini.md",
+  "g1Passed": false,
+  "g2Passed": false,
+  "customerReleaseApproved": false
+}

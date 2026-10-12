@@ -1,0 +1,27 @@
+[Unit]
+Description=Appraisal CLI agent gateway
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cli-gateway
+Group=cli-gateway
+WorkingDirectory=/opt/appraisal-gateway
+EnvironmentFile=/etc/cli-gateway/worker.env
+Environment=PYTHONPATH=/opt/appraisal-gateway/src
+LoadCredential=host-secret:/etc/cli-gateway/host-secret
+Environment=CLI_HOST_SECRET_FILE=%d/host-secret
+ExecStart=/usr/bin/python3 -m cli_gateway.main
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/cli-gateway /home/cli-gateway
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

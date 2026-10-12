@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "../lib/edge";
 import type { PlotAnalysisData } from "../lib/plot-description";
+import {TransactionTable} from "./TransactionTable";
+import type {TransactionResult} from "../../../supabase/functions/appraisal/nearby-transactions";
+import { cliLabels,type CliProvider } from "../lib/cli-status";
 
-type Job = {id:string;address:string;section_id:string;workspace_id:string;provider_id:string;model_id:string;status:string;error_code?:string;created_at:string};
-type Detail = {id:string;output_text:string|null;plot_evidence:PlotAnalysisData|null;additional_request:string};
-const sections=[{id:"plot_description",label:"תיאור החלקה"},{id:"environment_description",label:"תיאור סביבת הנכס"}];
+type Job = {id:string;address:string;section_id:string;workspace_id:string;provider_id:string;model_id:string;status:string;error_code?:string;created_at:string;execution_mode?:string;resolved_model_id?:string|null};
+type Detail = {id:string;output_text:string|null;plot_evidence:PlotAnalysisData|null;additional_request:string;transaction_result?:TransactionResult;analysis_error?:string};
+const sections=[{id:"plot_description",label:"תיאור החלקה"},{id:"environment_description",label:"תיאור סביבת הנכס"},{id:"comparable_sales",label:"עסקאות מהסביבה (CLI)"}];
 const errorMessage=(e:unknown)=>e instanceof Error?e.message:"לא ניתן לטעון את הרשומה";
 
 function Snapshot({data,id}:{data:PlotAnalysisData;id:string}){
@@ -29,12 +32,12 @@ function HistoryItem({job,renderReport}:{job:Job;renderReport:(text:string)=>Rea
     api<{job:Detail}>("historyDetail",{id:job.id}).then(r=>{if(active){setDetail(r.job);setError("");}}).catch(e=>{if(active)setError(errorMessage(e));});
     return()=>{active=false;};
   },[open,detail,job.id,retry]);
-  const status=({succeeded:"הושלם",running:"בטיפול",failed:"נכשל",needs_review:"דרושה בדיקה"} as Record<string,string>)[job.status]??job.status;
+  const status=({succeeded:"הושלם",running:"בטיפול",queued:"ממתין בתור",cancel_requested:"ממתין לעצירה",cancelled:"בוטל",expired:"פג תוקף",failed:"נכשל",needs_review:"דרושה בדיקה"} as Record<string,string>)[job.status]??job.status;
   return <details className="history-item" onToggle={e=>{if(e.target===e.currentTarget)setOpen(e.currentTarget.open);}}>
     <summary><span>{job.address}</span><span className={`history-status ${job.status}`}>{status}</span><small>{new Date(job.created_at).toLocaleString("he-IL")}</small></summary>
-    {open&&<><p><bdi>{job.provider_id} / {job.model_id}</bdi></p>
+    {open&&<><p><bdi>{job.execution_mode==='cli'?'CLI':'API'} · {job.execution_mode==='cli'?(cliLabels[job.provider_id as CliProvider]??job.provider_id):job.provider_id} / {job.execution_mode==='cli'?(job.resolved_model_id??'ברירת המחדל של הספק'):job.model_id}</bdi></p>
       {error?<p role="alert" className="error">{error} <button className="secondary" onClick={()=>{setError("");setRetry(v=>v+1);}}>ניסיון נוסף</button></p>:!detail?<p role="status">טוען את הדוח השמור…</p>:<>
-        {detail.output_text?renderReport(detail.output_text):<p>{job.status==="running"?"הבקשה עדיין בטיפול. יש לבדוק את התוצאה לפני הפעלה חוזרת.":job.error_code??"לא נשמרה טיוטה."}</p>}
+        {detail.analysis_error?<p role="alert" className="error">{detail.analysis_error}</p>:detail.transaction_result?<TransactionTable result={detail.transaction_result}/>:detail.output_text?renderReport(detail.output_text):<p>{["queued","running","cancel_requested"].includes(job.status)?"הבקשה עדיין בטיפול. ניתן לחזור לבקשה חדשה כדי לבדוק את המצב בלי לשלוח שוב.":job.error_code??"לא נשמרה טיוטה."}</p>}
         {detail.additional_request&&<details><summary>הבקשות שנשלחו לסוכן</summary><p className="history-request">{detail.additional_request}</p></details>}
         {job.section_id==="plot_description"&&(detail.plot_evidence?<Snapshot data={detail.plot_evidence} id={job.id}/>:<p className="muted">נתוני GovMap לא נשמרו עבור רשומה זו. שמירת הנתונים זמינה לבקשות חדשות.</p>)}
       </>}

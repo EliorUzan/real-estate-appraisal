@@ -1,0 +1,9 @@
+{
+  "admin": {"secureModeEnabled": true, "extensions": {"enabled": false}, "mcp": {"enabled": false}, "skills": {"enabled": false}},
+  "experimental": {"enableAgents": false},
+  "hooksConfig": {"enabled": false},
+  "telemetry": {"enabled": false, "logPrompts": false},
+  "privacy": {"usageStatisticsEnabled": false},
+  "security": {"enablePermanentToolApproval": false, "disableYoloMode": true},
+  "tools": {"exclude": ["*"]}
+}

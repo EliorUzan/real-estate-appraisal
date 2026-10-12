@@ -1,0 +1,5 @@
+**
+!deploy/
+!deploy/nadlan-browser/
+!deploy/nadlan-browser/*.mjs
+!deploy/nadlan-browser/package*.json

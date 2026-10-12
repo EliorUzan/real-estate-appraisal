@@ -1,0 +1,21 @@
+const messages:Record<string,string>={
+ UNAUTHENTICATED:"יש להתחבר מחדש למערכת.",INACTIVE_MEMBERSHIP:"אין הרשאה פעילה לצוות.",
+ ONBOARDING_DISABLED:"חיבור בדפדפן טרם הופעל עבור החשבון הזה.",NOT_FOUND:"תהליך החיבור לא נמצא.",
+ CONNECTION_BUSY:"בקשה פעילה משתמשת בחשבון. המתינו לסיומה או בטלו אותה.",
+ REQUEST_ID_CONFLICT:"מזהה הבקשה כבר שימש לתוכן אחר.",CONNECTION_CHANGED:"החיבור השתנה. רעננו את מצבו.",
+ VERIFICATION_REQUIRED:"הכניסה כבר נשמרה. יש לבדוק את זמינות הסוכן, ללא כניסה נוספת.",
+ LOGIN_EXPIRED:"זמן החיבור פג. יש להתחיל חיבור חדש.",INVALID_CODE:"הזינו קוד אישור בלבד, ללא קישור או רווחים.",
+ INVALID_INPUT:"פרטי הבקשה אינם תקינים.",INPUT_TOO_LARGE:"התוכן גדול מדי.",QUEUE_FULL:"יש יותר מדי ניסיונות חיבור. נסו מאוחר יותר.",
+ WORKER_UNAVAILABLE:"שרת הסוכן אינו זמין כרגע.",WORKER_LOST:"החיבור לשרת הופסק. ניתן להתחיל חיבור חדש לאחר התאוששותו.",
+ LOGIN_PROTOCOL_CHANGED:"ממשק הכניסה של הספק השתנה. נדרשת בדיקת המפעיל.",
+ HOST_WAKE_NOT_CONFIGURED:"הפעלה אוטומטית של השרת טרם הוגדרה. החיבור לחשבון נשמר.",
+ HOST_RECOVERY_REQUIRED:"שרת הסוכן דורש בדיקת התאוששות של המפעיל.",HOST_START_TIMEOUT:"הפעלת השרת חרגה מהזמן. הטיוטה והחיבור לחשבון נשמרו.",
+ HOST_AUTH_REQUIRED:"הרשאת GitHub להפעלת השרת פגה. נדרשת בדיקת המפעיל.",HOST_NOT_FOUND:"שרת הבדיקה אינו נמצא ב-GitHub.",
+ HOST_PERMISSION_OR_ALLOWANCE:"GitHub אינו מאפשר הפעלה כרגע. נדרשת בדיקת הרשאה או מכסת הבדיקה.",HOST_RATE_LIMITED:"GitHub הגביל זמנית את קצב הבקשות. נסו מאוחר יותר.",HOST_START_FAILED:"לא ניתן להפעיל את השרת כרגע.",HOST_SCOPE_MISMATCH:"שרת הבדיקה אינו תואם את ההגדרה המאושרת.",
+ AUTH_REQUIRED:"Google דורש כניסה מחדש.",QUOTA_EXCEEDED:"הכניסה נשמרה, אך מכסת הספק אינה זמינה כרגע.",PLAN_REQUIRED:"הכניסה נשמרה, אך החשבון אינו זכאי להפעלת הסוכן.",
+ OPERATOR_REQUIRED:"הגדרת המפות זמינה למפעיל המורשה בלבד.",SETUP_EXPIRED:"זמן הגדרת המפות פג. ניתן להתחיל הגדרה חדשה.",
+ MAPS_INVALID_KEY:"Google לא אישר את מפתח המפות. בדקו שהועתק מפתח Demo תקין.",MAPS_QUOTA_EXCEEDED:"מכסת Google Maps Demo אינה זמינה כרגע. נסו מאוחר יותר.",
+ MAPS_PROTOCOL_CHANGED:"ממשק שירות המפות השתנה. נדרשת בדיקת המפעיל.",MAPS_SETUP_FAILED:"הגדרת המפות לא הושלמה. ניתן לבדוק את המצב ולנסות שוב.",
+ ACCESS_REVOKED:"ההרשאה לצוות בוטלה.",CANCELLED:"תהליך החיבור בוטל.",ORIGIN_DENIED:"מקור הבקשה אינו מורשה.",REQUEST_FAILED:"לא ניתן להשלים את הפעולה כרגע.",
+};
+export const onboardingMessage=(code:string)=>messages[code]??"תהליך החיבור נכשל. ניתן לבדוק את המצב ולנסות שוב.";

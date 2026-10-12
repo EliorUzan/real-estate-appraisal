@@ -1,8 +1,26 @@
 # Nearby transactions helper
 
+## New local share-link flow (2026-09-28)
+
+The local UI now defaults to Nadlan share-link collection and AI comparison, with table import and the existing GovMap flow available as alternatives. See [NADLAN_SHARE_LINK.md](NADLAN_SHARE_LINK.md) for the standalone script, separate browser service, configuration, validation and deployment acceptance checks. This new flow has **not** been deployed; the older production and MCP findings below remain historical context.
+
 The web app's **בקשה חדשה → משוך עסקאות מהסביבה** accepts optional property details and free-text preferences. A location must appear either in the address field or the description. The existing personal AI keys and model selection are reused for all six providers. Results are transient comparison tables; they do not create reports, revisions or history entries.
 
 ## Current flow: direct browser collection (2026-09-27)
+
+### Production access failure confirmed after deployment
+
+Reproduced in the integrated browser on the approved production origin with **בר יוחאי 8, רמת גן**, 500 m radius. The updated UI and backend preparation work; the map loads and address lookup succeeds. The SDK path does not return qualifying sale records, and the subsequent internal transaction request returns **HTTP 403**. The comparison model is never invoked for this structured search. This is not fixed by changing models or redeploying the same code.
+
+The current [GovMap public application bundle](https://www.govmap.gov.il/assets/index-BHSpIdy1.js), inspected on 2026-09-27, contains `RealEstateRecaptcha`, `CachedRecaptchaTokenProvider`, and `fetchRealEstate`. The transaction request uses `credentials: "include"` plus `x-recaptcha-token`; a 403 invalidates that token and may trigger one retry with a newly obtained token. This is a separate mechanism from the domain-approved map token. It is direct evidence that the supplied plain Python/JavaScript request examples omit part of the current first-party transaction flow. It does not prove whether additional network restrictions also apply.
+
+The [public SDK](https://www.govmap.gov.il/govmap/api/govmap.api.js) also suppresses exceptions from `getLayerFilterFields`, sometimes returning undefined. Therefore, absence of sale fields is not proof of an empty transaction database or a specific permission error. The app now distinguishes SDK failure/no-sale-fields from the stage of the failed internal request, redacts SDK error details, and explains the access requirement. This diagnostic correction does **not** claim to restore transaction access.
+
+**Required next step:** ask GovMap/המרכז למיפוי ישראל whether the existing API registration for `real-estate-appraisal-sage.vercel.app` can retrieve individual sale records (date, price, area, rooms and location), which supported API/layer supplies them, and how third-party apps should authenticate. Do not send the token in public correspondence. Do not copy GovMap's reCAPTCHA token, reuse site credentials, or spoof its origin. A supported transaction API contract or separately licensed source is needed to finish automated retrieval.
+
+Suggested request:
+
+> ברשותנו הרשאת GovMap API לדומיין real-estate-appraisal-sage.vercel.app. מפה, איתור כתובת ונתוני חלקות עובדים. אנו זקוקים לרשומות עסקאות מכר בסביבת נכס, לרבות תאריך, מחיר, שטח, חדרים ומיקום. בקשת ‎/api/real-estate/deals/...‎ מהדומיין המאושר מוחזרת עם HTTP 403, ושכבת nadlan דרך ה־SDK אינה מחזירה לנו רשומות מכר. האם קיים ממשק נתמך והרשאה מתאימה לשימוש זה? מהו מסלול האימות עבור יישום צד שלישי, בהתחשב באימות reCAPTCHA הנפרד באתרכם?
 
 The current web UI no longer calls Nadlan MCP. `prepareNearbyTransactions` resolves the search using the selected model only when free text needs interpretation. A same-origin `govmap-transactions.html` frame geocodes the exact address using the existing GovMap SDK and domain token, then attempts token-aware access to the `nadlan` layer. Only explicit sale records qualify. If the SDK does not expose sale records, the browser attempts the internal polygon-discovery and street-deal endpoints. A 403, CORS failure, timeout or unexpected response stops collection; none produces synthetic rows.
 

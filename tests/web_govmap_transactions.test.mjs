@@ -35,6 +35,20 @@ test('token-aware SDK sales avoid the internal endpoint fallback', async () => {
   assert.deepEqual(result.rows, [sale]);
 });
 
+test('access failures identify the blocked stage and SDK outcome without leaking request secrets', async () => {
+  const api = { getLayerFilterFields: async () => { throw Object.assign(new Error('url?apiToken=PRIVATE'), { response: { status: 403 } }); } };
+  await assert.rejects(collectGovMapTransactions({ ...collector, api, fetcher: async () => new Response('', { status: 403 }) }), error => {
+    assert.match(error.message, /איתור הפוליגונים/);
+    assert.match(error.message, /SDK.*403/);
+    assert.match(error.message, /reCAPTCHA/);
+    assert.ok(!error.message.includes('PRIVATE'));
+    return true;
+  });
+  let calls = 0;
+  await assert.rejects(collectGovMapTransactions({ ...collector, fetcher: async () => ++calls === 1 ? json([{ polygon_id: 1 }]) : new Response('', { status: 403 }) }), /אחזור רשומות המכר/);
+  assert.equal(calls, 2);
+});
+
 test('403, CORS, non-JSON, metadata-only rows and approximate locations fail explicitly', async () => {
   let calls = 0;
   await assert.rejects(collectGovMapTransactions({ ...collector, fetcher: async () => { calls++; return new Response('', { status: 403 }); } }), /403/);

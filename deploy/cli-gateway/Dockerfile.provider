@@ -1,0 +1,20 @@
+# Supply a verified Node 22+ Debian image digest and exact native CLI release.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG CLI_PACKAGE
+ARG CLI_VERSION
+ARG CLI_INTEGRITY
+RUN test -n "$CLI_VERSION" && case "$CLI_PACKAGE" in @google/gemini-cli|@openai/codex|@anthropic-ai/claude-code) true;; *) exit 1;; esac \
+    && apt-get update && apt-get install --no-install-recommends -y python3 tini ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && test -n "$CLI_INTEGRITY" && test "$(npm view "$CLI_PACKAGE@$CLI_VERSION" dist.integrity)" = "$CLI_INTEGRITY" \
+    && npm install --global "$CLI_PACKAGE@$CLI_VERSION" \
+    && usermod --login agent --home /home/agent --move-home node
+COPY deploy/cli-gateway/watchdog.py /opt/gateway/watchdog.py
+COPY deploy/cli-gateway/claude-settings.json /opt/gateway/claude-settings.json
+COPY deploy/cli-gateway/gemini-deny.toml /etc/gemini-cli/policies/deny.toml
+COPY deploy/cli-gateway/gemini-settings.json /etc/gemini-cli/settings.json
+RUN chmod -R a-w /opt/gateway /etc/gemini-cli
+USER 1000:1000
+WORKDIR /work
+ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/opt/gateway/watchdog.py"]

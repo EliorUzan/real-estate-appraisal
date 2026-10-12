@@ -4,21 +4,28 @@ import type { FormEvent } from "react";
 import { api } from "./lib/edge";
 import { supabase } from "./lib/supabase";
 import catalog from "./catalog.json";
+import {IMPORTED_TRANSACTION_PROMPT} from "../../supabase/functions/appraisal/imported-transactions";
 import plotAgent from "./plot-prompt.json";
 import { GovMapPanel } from "./components/GovMapPanel";
 import { History } from "./components/History";
+import { CliConnections } from "./components/CliConnections";
+import { CliRequest } from "./components/CliRequest";
+import {CliConnectionProvider} from "./lib/cli-connection-controller";
+import {useCliConnectionController} from "./lib/cli-connection-context";
+import {onboarding,LOGIN_TERMINAL} from "./lib/cli-onboarding";
+import {MapsDemoSettings} from './components/MapsDemoSettings';
 import { Icon, Models } from "./components/ProviderControls";
 import { NearbyTransactions } from "./components/NearbyTransactions";
 import type { PlotAnalysisData } from "./lib/plot-description";
 
 type Setting = { provider_id:string; model_id:string; configured:boolean; key_last4:string|null };
 type Prompt = { section_id:string; content:string; version:number };
-type Bootstrap = { settings:Setting[]; prompts:Prompt[]; members:{workspace_id:string;role:string}[]; defaultProvider:string; nadlanConfigured?:boolean };
+type Bootstrap = { settings:Setting[]; prompts:Prompt[]; members:{workspace_id:string;role:string}[]; defaultProvider:string; nadlanConfigured?:boolean; nadlanBrowserConfigured?:boolean };
 type Job = { id:string; address:string; status:string; output_text?:string; provider_id:string; model_id:string; created_at:string; error_code?:string };
 const message = (error:unknown) => error instanceof Error ? error.message : "הפעולה נכשלה";
 const defaultPrompt = (section:string) => section==="environment_description" ? catalog.defaultPrompt : section==="plot_description"
   ? plotAgent.content
-  : "# "+catalog.sections.find(s=>s.id===section)?.label+"\n\nפרק זה טרם מומש. ניתן להכין כאן הוראות אישיות לשימוש עתידי.";
+  : section==="comparable_sales" ? IMPORTED_TRANSACTION_PROMPT : "# "+catalog.sections.find(s=>s.id===section)?.label+"\n\nפרק זה טרם מומש. ניתן להכין כאן הוראות אישיות לשימוש עתידי.";
 function Login(){
   const [email,setEmail]=useState(""),[password,setPassword]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   async function submit(e:FormEvent){e.preventDefault();setBusy(true);setError("");try{
@@ -79,14 +86,14 @@ function Settings({data,setData}:{data:Bootstrap;setData:(d:Bootstrap)=>void}){
     setData(await api<Bootstrap>("bootstrap"));
     setImportStatus("יובאו: "+(result.imported.join(", ")||"לא נמצאו מפתחות")+(result.failed.length?". לא יובאו: "+result.failed.join(", "):""));
   }catch(e){setError(message(e));}finally{setImporting(false);}}
-  return <><h1>הגדרות</h1><p>המפתחות מוצפנים ב-Supabase Vault. המפתח המלא אינו נשלח בחזרה לדפדפן.</p>
+  return <><h1>הגדרות</h1><CliConnections/><MapsDemoSettings/><h2>ספקי API</h2><p>מפתחות API מוצפנים ב-Supabase Vault. המפתח המלא אינו נשלח בחזרה לדפדפן.</p>
     {import.meta.env.DEV&&<div className="actions"><button onClick={importDesktop} disabled={importing}>{importing?"מייבא…":"ייבוא מפתחות מהיישום השולחני"}</button></div>}
     {importStatus&&<p role="status" className="success">{importStatus}</p>}
     <label>ספק ברירת מחדל<select value={data.defaultProvider} onChange={async e=>{const provider=e.target.value;try{await api("defaultProvider",{provider});setData({...data,defaultProvider:provider});setError("");}catch(e){setError(message(e));}}}>{catalog.providers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
     {error&&<p role="alert" className="error">{error}</p>}
     <div className="providers">{catalog.providers.map(p=><ProviderCard key={p.id} provider={p} setting={data.settings.find(s=>s.provider_id===p.id)} onSaved={s=>setData({...data,settings:[...data.settings.filter(x=>x.provider_id!==s.provider_id),s]})}/>)}</div>
     <AccountSettings data={data}/><details className="advanced"><summary>הגדרות מתקדמות · Advanced settings</summary><h2>קובצי סוכנים אישיים</h2><p>ההוראות פרטיות לחשבון שלך. בחרו פרק כדי לערוך את קובץ הסוכן המלא. הגרסה השמורה תשמש בבקשה הבאה במקום ברירת המחדל.</p>
-      <label>פרק הדוח<select value={section} onChange={e=>setSection(e.target.value)}>{catalog.sections.map(s=><option disabled={!s.available} key={s.id} value={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}</select></label>
+      <label>פרק הדוח<select value={section} onChange={e=>setSection(e.target.value)}>{catalog.sections.map(s=><option disabled={!s.available&&s.id!=="comparable_sales"} key={s.id} value={s.id}>{s.label}{s.available||s.id==="comparable_sales"?"":" — בהכנה"}</option>)}</select></label>
       <PromptEditor key={section} section={section} prompt={data.prompts.find(p=>p.section_id===section)} onSaved={p=>setData({...data,prompts:[...data.prompts.filter(x=>x.section_id!==p.section_id),p]})}/>
     </details></>;
 }
@@ -97,11 +104,15 @@ async function encodeFile(file:File,role:string){
   const bytes=new Uint8Array(await file.arrayBuffer());let binary="";for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
   return {name:file.name,type,data:btoa(binary),role};
 }
-function NewRequest({data,onSettings}:{data:Bootstrap;onSettings:()=>void}){
-  const [section,setSection]=useState("environment_description");
+function NewRequest({data,onSettings,userId,active}:{data:Bootstrap;onSettings:()=>void;userId:string;active:boolean}){
+  const [section,setSection]=useState(()=>{try{const s=sessionStorage.getItem("request-section:"+userId);return ["environment_description","plot_description","nearby_transactions"].includes(s??"")?s!:"environment_description";}catch{return "environment_description";}});
+  const [mode,setMode]=useState(()=>{try{return sessionStorage.getItem("request-mode:"+userId)==="cli"||["","plot_description","comparable_sales"].some(s=>sessionStorage.getItem("cli-pending:"+userId+(s?":"+s:"")))?"cli":"api";}catch{return "api";}});
   return <><div className="title-row"><h1>בקשה חדשה</h1></div>
-    <label>סוג הבקשה<select value={section} onChange={e=>setSection(e.target.value)}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}<option value="nearby_transactions">משוך עסקאות מהסביבה</option></select></label>
-    {section==="nearby_transactions" ? <NearbyTransactions data={data} onSettings={onSettings}/> : <SectionRequest key={section} section={section} data={data} onSettings={onSettings}/>}
+    <label>סוג הבקשה<select value={section} onChange={e=>{setSection(e.target.value);try{sessionStorage.setItem("request-section:"+userId,e.target.value);}catch{/* Keep current selection. */}}}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}<option value="nearby_transactions">משוך עסקאות מהסביבה</option></select></label>
+    <label>אופן הפעלה<select value={mode} onChange={e=>{setMode(e.target.value);try{sessionStorage.setItem("request-mode:"+userId,e.target.value);}catch{/* Keep current selection. */}}}><option value="api">API</option><option value="cli">CLI · חשבון אישי (ניסוי)</option></select></label>
+    {section==="nearby_transactions"?<NearbyTransactions key={mode} data={data} onSettings={onSettings} executionMode={mode==="cli"?"cli":"api"} userId={userId} workspaces={data.members.map(m=>m.workspace_id)}/>
+      :mode==="cli"?<CliRequest key={section} sectionId={section==="plot_description"?"plot_description":"environment_description"} userId={userId} workspaces={data.members.map(m=>m.workspace_id)} onSettings={onSettings} active={active}/>
+      :<SectionRequest key={section} section={section} data={data} onSettings={onSettings}/>}
   </>;
 }
 function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap;onSettings:()=>void}){
@@ -115,10 +126,13 @@ function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap
   const pdfAvailable=["openai","gemini","anthropic"].includes(provider);
   const searchAvailable=["openai","gemini","anthropic"].includes(provider)||(provider==="groq"&&["openai/gpt-oss-20b","openai/gpt-oss-120b"].includes(model));
   const configured=data.settings.find(s=>s.provider_id===provider)?.configured;
-  function lookup(e:FormEvent){e.preventDefault();setPlotData(null);setOutput("");setError("");setNotice("");setMapAddress(address.trim());setLookupVersion(v=>v+1);}
+  function lookup(e:FormEvent){e.preventDefault();if(!address.trim()){setError("יש להזין כתובת נכס לפני אחזור נתוני חלקה.");return;}setPlotData(null);setOutput("");setError("");setNotice("");setMapAddress(address.trim());setLookupVersion(v=>v+1);}
   async function generate(e:FormEvent){
     e.preventDefault();
-    if(busy || (isPlot&&(!plotData||plotData.address!==address.trim())))return;
+    if(busy)return;
+    const issues=[!address.trim()?"יש להזין כתובת נכס.":"",!configured?"יש להגדיר מפתח API לספק בהגדרות.":"",!model.trim()?"יש לבחור מודל AI.":"",!consent?"יש לאשר העברת הנתונים לספק.":"",isPlot&&(!plotData||plotData.address!==address.trim())?"יש להשלים איתור חלקה ואיסוף נתוני GovMap לפני יצירת התיאור.":""].filter(Boolean);
+    if(issues.length){setError(issues.join(" "));return;}
+    if(!(e.currentTarget as HTMLFormElement).reportValidity())return;
     setBusy(true);setError("");setNotice("");setOutput("");
     if(!isPlot)setMapAddress(address.trim());
     try{
@@ -135,9 +149,9 @@ function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap
   }
   const addressInput=<label>כתובת הנכס<input value={address} onChange={e=>{setAddress(e.target.value);if(isPlot){setMapAddress("");setPlotData(null);setOutput("");}}} required maxLength={500} placeholder="לדוגמה: התחייה 2, חדרה"/></label>;
   return <>
-    {isPlot&&<><p className="muted">מאתרים את החלקה, בודקים את נתוני המיפוי ולאחר מכן יוצרים את התיאור.</p><form onSubmit={lookup}><fieldset disabled={busy} className="request-fields">{addressInput}<button disabled={!address.trim()}>אחזור נתוני חלקה מ־GovMap</button></fieldset></form>
+    {isPlot&&<><p className="muted">מאתרים את החלקה, בודקים את נתוני המיפוי ולאחר מכן יוצרים את התיאור.</p><form onSubmit={lookup} noValidate><fieldset disabled={busy} className="request-fields">{addressInput}<button>אחזור נתוני חלקה מ־GovMap</button></fieldset></form>
     {mapAddress&&<div inert={busy}><GovMapPanel key={lookupVersion} address={mapAddress} mode="plot" onPlotData={setPlotData}/></div>}</>}
-    {(!isPlot||mapAddress)&&<form onSubmit={generate} className={isPlot?"plot-generation":""}>
+    {(!isPlot||mapAddress)&&<form onSubmit={generate} noValidate className={isPlot?"plot-generation":""}>
     {isPlot&&<h2>יצירת תיאור החלקה</h2>}
     <fieldset disabled={busy} className="request-fields">
       {!isPlot&&addressInput}
@@ -151,8 +165,8 @@ function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap
       {!isPlot&&<label className="checkbox"><input type="checkbox" checked={search&&searchAvailable} disabled={!searchAvailable} onChange={e=>setSearch(e.target.checked)}/>חיפוש מידע עדכני באינטרנט</label>}
       <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את התוכן והקבצים לספק שנבחר ולשמור את הטיוטה בהיסטוריית הצוות.</label>
       {isPlot&&!plotData&&<p role="status">יצירת התיאור תהיה זמינה לאחר השלמת איתור החלקה ואיסוף הנתונים.</p>}
-      <div className="actions"><button disabled={busy||!configured||!model.trim()||!consent||(isPlot&&!plotData)}>{busy?"יוצר טיוטה…":isPlot?"צור תיאור חלקה באמצעות AI":"צור"}</button>
-      {!isPlot&&<button type="button" className="secondary" disabled={!address.trim()} onClick={()=>setMapAddress(address.trim())}>הצג מפה לכתובת</button>}</div>
+      <div className="actions"><button disabled={busy}>{busy?"יוצר טיוטה…":isPlot?"צור תיאור חלקה באמצעות AI":"צור"}</button>
+      {!isPlot&&<button type="button" className="secondary" onClick={()=>{if(!address.trim())setError("יש להזין כתובת נכס כדי להציג מפה.");else setMapAddress(address.trim());}}>הצג מפה לכתובת</button>}</div>
     </fieldset></form>}
     {busy&&<p role="status">הבקשה נשלחה לעיבוד.</p>}{error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status" className="success">{notice}</p>}
     {output&&<Report text={output}/>}
@@ -165,14 +179,24 @@ function Report({text}:{text:string}){
 }
 function Workspace({session}:{session:Session}){
   const [view,setView]=useState<"new"|"history"|"settings">("new"),[data,setData]=useState<Bootstrap|null>(null),[error,setError]=useState("");
+  const cli=useCliConnectionController();
+  async function logout(){
+    for(const section of ["","plot_description","comparable_sales"])sessionStorage.removeItem("cli-pending:"+session.user.id+(section?":"+section:""));
+    // Best effort while the app JWT still exists. Server deadlines remain the
+    // backstop if the tab is offline; signing out must not wait indefinitely.
+    if(cli?.session&&!LOGIN_TERMINAL.has(cli.session.state)){
+      await Promise.race([onboarding.cancel(cli.session.id).catch(()=>undefined),new Promise<void>(resolve=>setTimeout(resolve,2000))]);
+    }
+    await supabase.auth.signOut();
+  }
   useEffect(()=>{let active=true;api<Bootstrap>("bootstrap").then(d=>{if(active)setData(d);}).catch(e=>{if(active)setError(message(e));});return()=>{active=false;};},[]);
-  return <div dir="rtl"><header><span className="brand">עוזר להערכת מקרקעין</span><nav aria-label="ניווט ראשי"><button className={view==="new"?"nav-active":""} onClick={()=>setView("new")}>בקשה חדשה</button><button className={view==="history"?"nav-active":""} onClick={()=>setView("history")}>היסטוריה</button></nav><span className="account"><bdi>{session.user.email}</bdi><button className="quiet-button" onClick={()=>supabase.auth.signOut()}>יציאה</button></span><button className={"gear "+(view==="settings"?"nav-active":"")} aria-label="הגדרות" title="הגדרות" onClick={()=>setView("settings")}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.325 4.317a1.125 1.125 0 0 1 1.088-.817h1.174c.53 0 .996.35 1.088.857l.196 1.084c.056.311.252.57.537.719.257.135.5.293.724.47.254.2.598.238.888.103l1.009-.47a1.125 1.125 0 0 1 1.487.49l.587 1.016c.274.474.11 1.08-.365 1.354l-.918.53a1.125 1.125 0 0 0-.562.974v.746c0 .402.215.774.562.974l.918.53c.475.274.639.88.365 1.354l-.587 1.016a1.125 1.125 0 0 1-1.487.49l-1.009-.47a1.125 1.125 0 0 0-.888.103c-.224.177-.467.335-.724.47a1.125 1.125 0 0 0-.537.719l-.196 1.084a1.125 1.125 0 0 1-1.088.857h-1.174a1.125 1.125 0 0 1-1.088-.817l-.196-1.084a1.125 1.125 0 0 0-.537-.719 5.23 5.23 0 0 1-.724-.47 1.125 1.125 0 0 0-.888-.103l-1.009.47a1.125 1.125 0 0 1-1.487-.49l-.587-1.016a1.125 1.125 0 0 1 .365-1.354l.918-.53a1.125 1.125 0 0 0 .562-.974v-.746c0-.402-.215-.774-.562-.974l-.918-.53a1.125 1.125 0 0 1-.365-1.354l.587-1.016a1.125 1.125 0 0 1 1.487-.49l1.009.47a1.125 1.125 0 0 0 .888-.103c.224-.177.467-.335.724-.47.285-.15.481-.408.537-.719l.196-1.084Z"/><circle cx="12" cy="12" r="3"/></svg></button></header>
-    <main className="workspace"><section className="content-card">{error?<><p className="error" role="alert">{error}</p><button onClick={()=>location.reload()}>ניסיון נוסף</button></>:!data?<p role="status">טוען את החשבון…</p>:view==="settings"?<Settings data={data} setData={setData}/>:view==="history"?<History renderReport={text=><Report text={text}/>}/>:<NewRequest data={data} onSettings={()=>setView("settings")}/>}</section></main>
+  return <div dir="rtl"><header><span className="brand">עוזר להערכת מקרקעין</span><nav aria-label="ניווט ראשי"><button className={view==="new"?"nav-active":""} onClick={()=>setView("new")}>בקשה חדשה</button><button className={view==="history"?"nav-active":""} onClick={()=>setView("history")}>היסטוריה</button></nav><span className="account"><bdi>{session.user.email}</bdi><button className="quiet-button" onClick={()=>void logout()}>יציאה</button></span><button className={"gear "+(view==="settings"?"nav-active":"")} aria-label="הגדרות" title="הגדרות" onClick={()=>setView("settings")}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.325 4.317a1.125 1.125 0 0 1 1.088-.817h1.174c.53 0 .996.35 1.088.857l.196 1.084c.056.311.252.57.537.719.257.135.5.293.724.47.254.2.598.238.888.103l1.009-.47a1.125 1.125 0 0 1 1.487.49l.587 1.016c.274.474.11 1.08-.365 1.354l-.918.53a1.125 1.125 0 0 0-.562.974v.746c0 .402.215.774.562.974l.918.53c.475.274.639.88.365 1.354l-.587 1.016a1.125 1.125 0 0 1-1.487.49l-1.009-.47a1.125 1.125 0 0 0-.888.103c-.224.177-.467.335-.724.47a1.125 1.125 0 0 0-.537.719l-.196 1.084a1.125 1.125 0 0 1-1.088.857h-1.174a1.125 1.125 0 0 1-1.088-.817l-.196-1.084a1.125 1.125 0 0 0-.537-.719 5.23 5.23 0 0 1-.724-.47 1.125 1.125 0 0 0-.888-.103l-1.009.47a1.125 1.125 0 0 1-1.487-.49l-.587-1.016a1.125 1.125 0 0 1 .365-1.354l.918-.53a1.125 1.125 0 0 0 .562-.974v-.746c0-.402-.215-.774-.562-.974l-.918-.53a1.125 1.125 0 0 1-.365-1.354l.587-1.016a1.125 1.125 0 0 1 1.487-.49l1.009.47a1.125 1.125 0 0 0 .888-.103c.224-.177.467-.335.724-.47.285-.15.481-.408.537-.719l.196-1.084Z"/><circle cx="12" cy="12" r="3"/></svg></button></header>
+    <main className="workspace"><section className="content-card">{error?<><p className="error" role="alert">{error}</p><button onClick={()=>location.reload()}>ניסיון נוסף</button></>:!data?<p role="status">טוען את החשבון…</p>:<><div hidden={view!=="new"}><NewRequest key={session.user.id} data={data} userId={session.user.id} onSettings={()=>setView("settings")} active={view==="new"}/></div>{view==="settings"&&<Settings data={data} setData={setData}/>} {view==="history"&&<History renderReport={text=><Report text={text}/>}/>}</>}</section></main>
   </div>;
 }
 export function App(){
   const [session,setSession]=useState<Session|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState("");
   useEffect(()=>{supabase.auth.getSession().then(({data,error})=>{setSession(data.session);setLoading(false);if(error)setError(error.message);});const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,s)=>{setSession(s);setLoading(false);});return()=>subscription.unsubscribe();},[]);
   if(loading)return <p dir="rtl">טוען…</p>;if(error)return <p role="alert">{error}</p>;
-  return session?<Workspace session={session}/>:<Login/>;
+  return session?<CliConnectionProvider key={session.user.id}><Workspace session={session}/></CliConnectionProvider>:<Login/>;
 }

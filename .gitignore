@@ -15,3 +15,11 @@ coverage/
 .npm-cache/
 .vercel/
 supabase/.temp/
+cli-gateway-state/
+deploy/cli-gateway/manifests/
+deploy/cli-gateway/evidence/
+artifacts/cli-gateway-worker.tar.gz
+artifacts/cli-gateway-test-dependencies/
+# Local diagnostic captures can contain ephemeral sign-in URLs or codes.
+artifacts/
+.vite/

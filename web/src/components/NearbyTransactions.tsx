@@ -6,11 +6,28 @@ import catalog from "../catalog.json";
 import { api } from "../lib/edge";
 import { Icon, Models } from "./ProviderControls";
 import { TransactionTable } from "./TransactionTable";
+import { ImportedTransactions } from "./ImportedTransactions";
 
-type Account = { defaultProvider: string; settings: { provider_id: string; model_id: string; configured: boolean }[]; nadlanConfigured?: boolean };
+import {transactionFormIssues} from '../lib/transaction-form-issues';
+import {useCliAccount} from '../lib/use-cli-account';
+import {useCliSubmission} from '../lib/use-cli-submission';
+import {CliAccountControls} from './CliAccountControls';
+import {CliSubmissionStatus} from './CliSubmissionStatus';
+type Execution={executionMode?:'api'|'cli';userId?:string;workspaces?:string[]};
+type Account = { defaultProvider: string; settings: { provider_id: string; model_id: string; configured: boolean }[]; nadlanConfigured?: boolean; nadlanBrowserConfigured?: boolean };
 const optionalNumber = (s: string) => s === "" ? null : Number(s);
 
-export function NearbyTransactions({ data, onSettings }: { data: Account; onSettings: () => void }) {
+export function NearbyTransactions({ data, onSettings,...execution }: { data: Account; onSettings: () => void }&Execution) {
+  const [source, setSource] = useState("nadlan");
+  return <>
+    <label>מקור העסקאות<select value={source} onChange={e => setSource(e.target.value)}><option value="nadlan">קישור Nadlan — איסוף וניתוח</option><option value="import">טבלה שסופקה וקישור Nadlan</option><option value="govmap">חיפוש כתובת ב־GovMap</option></select></label>
+    {source !== "govmap" ? <ImportedTransactions key={source} automatic={source === "nadlan"} data={data} onSettings={onSettings} {...execution}/> : <GovMapNearbyTransactions data={data} onSettings={onSettings} {...execution}/>}
+  </>;
+}
+
+function GovMapNearbyTransactions({ data, onSettings,executionMode="api",userId="",workspaces=[] }: { data: Account; onSettings: () => void }&Execution) {
+  const cliMode=executionMode==="cli",cliAccount=useCliAccount(cliMode),cliRun=useCliSubmission(userId,"comparable_sales");
+  const [workspace,setWorkspace]=useState(workspaces[0]??"");
   const modelFor = (id: string) => data.settings.find(s => s.provider_id === id)?.model_id ?? catalog.providers.find(p => p.id === id)!.models[0][1];
   const [provider, setProvider] = useState(data.defaultProvider), [model, setModel] = useState(modelFor(data.defaultProvider));
   const [address, setAddress] = useState(""), [description, setDescription] = useState("");
@@ -20,7 +37,8 @@ export function NearbyTransactions({ data, onSettings }: { data: Account; onSett
   const [result, setResult] = useState<TransactionResult | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const frame = useRef<HTMLIFrameElement>(null);
-  const [collection, setCollection] = useState<{ requestId: string; query: TransactionQuery } | null>(null);
+  const [collection, setCollection] = useState<{ requestId: string; query: TransactionQuery;connectionId?:string;workspaceId?:string } | null>(null);
+  const submitCli=cliRun.submit;
   const [stage, setStage] = useState("");
   const approvedDomain = location.origin === GOVMAP_APP_ORIGIN;
   const configured = data.settings.some(s => s.provider_id === provider && s.configured);
@@ -37,6 +55,10 @@ export function NearbyTransactions({ data, onSettings }: { data: Account; onSett
       try {
         if (typeof event.data.error === "string") throw new Error(event.data.error);
         setStage("העסקאות התקבלו. בודק את הנתונים ומשווה באמצעות המודל שנבחר…");
+        if(collection.connectionId&&collection.workspaceId){
+          await submitCli({schemaVersion:1,requestId:crypto.randomUUID(),connectionId:collection.connectionId,workspaceId:collection.workspaceId,sectionId:"comparable_sales",address:collection.query.address,example:"",additionalRequest:"",modelSelection:"provider-default",consent:true,evidence:{kind:"govmap",query:collection.query,evidence:event.data.evidence}});
+          return;
+        }
         const next = await api<TransactionResult>("compareNearbyTransactions", { provider, model, consent, query: collection.query, evidence: event.data.evidence });
         if (active) setResult(next);
       } catch (e) { if (active) setError(e instanceof Error ? e.message : "השוואת העסקאות נכשלה."); }
@@ -44,29 +66,33 @@ export function NearbyTransactions({ data, onSettings }: { data: Account; onSett
     };
     window.addEventListener("message", receive);
     return () => { active = false; clearTimeout(timer); window.removeEventListener("message", receive); };
-  }, [collection, provider, model, consent]);
+  }, [collection, provider, model, consent,submitCli]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (inFlight.current) return;
+    if (inFlight.current || cliRun.busy) return;
+    const issues=[...transactionFormIssues({rooms,area,limit,startDate,endDate,radius}),!address.trim()&&!description.trim()?"יש להזין כתובת או תיאור מיקום הנכס.":"",cliMode&&!address.trim()?"בחיפוש CLI יש להזין כתובת מלאה בשדה הכתובת.":"",!consent?"יש לאשר העברת נתוני החיפוש לספקים.":"",cliMode?cliAccount.issue:!configured?"יש להגדיר מפתח API לספק בהגדרות.":!model.trim()?"יש לבחור מודל AI.":"",!approvedDomain?"איסוף GovMap זמין באתר המאושר בלבד; פתחו את הקישור לאתר הפעיל.":"",cliMode&&!workspaces.includes(workspace)?"יש לבחור צוות פעיל.":""].filter(Boolean);
+    if(issues.length){setError(issues.join(" "));return;}
+    if(!(event.currentTarget as HTMLFormElement).reportValidity())return;
+    if(cliMode&&cliRun.identity){setError("בקשת CLI קודמת נשמרה. בדקו את מצבה או בחרו יצירת בקשה חדשה.");return;}
     if (!approvedDomain) { setError("איסוף GovMap זמין בדומיין המאושר בלבד."); return; }
     if (startDate && endDate && startDate > endDate) { setError("תאריך ההתחלה מאוחר מתאריך הסיום."); return; }
     inFlight.current = true; setBusy(true); setError(""); setResult(null);
     setStage("מכין את פרטי החיפוש…");
     try {
-      const query = await api<TransactionQuery>("prepareNearbyTransactions", { provider, model, consent, query: {
+      const query = await api<TransactionQuery>("prepareNearbyTransactions", { provider, model, consent, ...(cliMode?{executionMode:"cli"}:{}), query: {
         address, description, rooms: optionalNumber(rooms), area: optionalNumber(area), radiusMeters: optionalNumber(radius), startDate, endDate, dealType, limit: Number(limit),
       } });
       setStage("אוסף עסקאות ישירות מ־GovMap באמצעות הדפדפן…");
-      setCollection({ requestId: crypto.randomUUID(), query });
+      setCollection({ requestId: crypto.randomUUID(), query,...(cliMode?{connectionId:cliAccount.selected!.connection!.id,workspaceId:workspace}:{}) });
     } catch (e) { setError(e instanceof Error ? e.message : "אחזור העסקאות נכשל."); inFlight.current = false; setBusy(false); }
   }
 
   return <section className="nearby-transactions" aria-labelledby="nearby-title">
     <h2 id="nearby-title">משוך עסקאות מהסביבה</h2>
-    <p className="muted">כלי עזר להשוואת עסקאות. מלאו את הפרטים הידועים לכם; אפשר לציין את המיקום גם בטקסט החופשי. התוצאות מוצגות בטבלה ואינן נשמרות כדוח.</p>
+    <p className="muted">כלי עזר להשוואת עסקאות. מלאו את הפרטים הידועים לכם; אפשר לציין את המיקום גם בטקסט החופשי. {cliMode?"תוצאת CLI נשמרת בהיסטוריה עם עסקאות המקור.":"התוצאות מוצגות בטבלה ואינן נשמרות כדוח."}</p>
     {!approvedDomain && <p role="status" className="error">הרשאת GovMap מוגדרת ל־<a href={GOVMAP_APP_ORIGIN}>אתר היישום הפעיל</a>. האיסוף אינו זמין ב־localhost או בתצוגה מקדימה; יש לפרוס שם את הגרסה המעודכנת.</p>}
-    <form onSubmit={submit}><fieldset disabled={busy} className="request-fields">
+    <form onSubmit={submit} noValidate><fieldset disabled={busy || cliRun.busy} className="request-fields">
       <label>כתובת או אזור הנכס<input value={address} onChange={e => setAddress(e.target.value)} maxLength={500} placeholder="לדוגמה: דיזנגוף 50, תל אביב"/></label>
       <div className="two-columns">
         <label>מספר חדרים<input type="number" min="0.5" max="100" step="0.5" value={rooms} onChange={e => setRooms(e.target.value)} placeholder="לא חובה"/></label>
@@ -81,11 +107,15 @@ export function NearbyTransactions({ data, onSettings }: { data: Account; onSett
         <label>מספר תוצאות מרבי<input type="number" min="1" max="40" step="1" value={limit} onChange={e => setLimit(e.target.value)} required/></label>
       </div>
       <small>ללא תקופה או רדיוס בבקשה: שנתיים אחרונות ו־500 מטרים. שדות מפורשים קודמים לתיאור החופשי. חדרים ושטח משמשים לדירוג דמיון, לא לסינון קשיח.</small>
+      {cliMode&&<small>במצב CLI יש להזין את הכתובת בשדה הכתובת. תקופה ורדיוס נקבעים מהשדות המפורשים או מברירות המחדל; התיאור החופשי משמש להשוואה.</small>}
+      {cliMode?<><CliAccountControls account={cliAccount} onSettings={onSettings}/>{workspaces.length>1&&<label>צוות<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{workspaces.map(w=><option key={w}>{w}</option>)}</select></label>}</>:<>
       <div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e => {setProvider(e.target.value); setModel(modelFor(e.target.value));}}>{catalog.providers.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div>
       {!configured && <p className="error">יש להגדיר מפתח API לספק זה. <button type="button" className="text-button" onClick={onSettings}>פתיחת הגדרות</button></p>}
+      </>}
       <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את פרטי החיפוש ל־GovMap ואת פרטי הנכס והעסקאות שהתקבלו לספק AI הנבחר.</label>
-      <button disabled={busy || !approvedDomain || !configured || !model.trim() || !consent || (!address.trim() && !description.trim())}>{busy ? "מאתר ומשווה עסקאות…" : "משוך עסקאות מהסביבה"}</button>
+      <button disabled={busy || cliRun.busy}>{busy ? "מאתר ומשווה עסקאות…" : "משוך עסקאות מהסביבה"}</button>
     </fieldset></form>
+    {cliMode&&<CliSubmissionStatus run={cliRun}/>}
     {busy && <p role="status">{stage}</p>}
     {collection && <iframe ref={frame} title="איסוף עסקאות מ־GovMap" style={{ width: "100%", minHeight: 440, border: 0 }} src={`/govmap-transactions.html#${new URLSearchParams({ address: collection.query.address, radius: String(collection.query.radiusMeters), request: collection.requestId })}`}/>}
     {error && <p role="alert" className="error">{error}</p>}
