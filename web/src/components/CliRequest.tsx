@@ -31,6 +31,8 @@ export function CliRequest({userId,workspaces,onSettings,active=true,sectionId='
    <button disabled={run.busy}>{run.busy?'שולח…':plot?'צור תיאור חלקה באמצעות CLI':'שליחה לסוכן CLI'}</button>
   </fieldset></form>}
   {error&&<p role='alert' className='error'>{error}</p>}
-  {mapAddress&&<div inert={run.busy}><GovMapPanel key={lookupVersion} address={mapAddress} mode={plot?'plot':'map'} onPlotData={setPlotData}/></div>}
-  <CliSubmissionStatus run={run}/></>;
+  {plot&&mapAddress&&<div inert={run.busy}><GovMapPanel key={lookupVersion} address={mapAddress} mode='plot' onPlotData={setPlotData}/></div>}
+  <CliSubmissionStatus run={run}/>
+  {!plot&&mapAddress&&<GovMapPanel key={lookupVersion} address={mapAddress}/>}
+ </>;
 }
