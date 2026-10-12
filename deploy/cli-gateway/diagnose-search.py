@@ -6,6 +6,7 @@ error categories only. Does not save native output or change runtime approvals.
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import threading
@@ -22,11 +23,22 @@ from cli_gateway.recovery import Journal
 from cli_gateway.runner import Buffer, Docker
 
 
+def diagnostic_text(value):
+    """Operator-only synthetic task diagnostics, never used for customer jobs."""
+    text = json.dumps(value, ensure_ascii=False)
+    text = re.sub(r'https?://\S+', '[url]', text)
+    text = re.sub(r'[\w.+-]+@[\w.-]+', '[email]', text)
+    text = re.sub(r'(?i)(bearer\s+|(?:token|secret|password|authorization|api[_-]?key)[\s"\x27:=]+)\S+', '[credential]', text)
+    text = re.sub(r'[A-Za-z0-9_+/=-]{32,}', '[opaque]', text)
+    return text[:1200]
+
+
 def main():
     import fcntl
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', required=True)
     parser.add_argument('--connection', required=True)
+    parser.add_argument('--task', choices=['unesco', 'hebrew-search'], default='unesco')
     args = parser.parse_args()
     config = Path(args.config)
     if not config.is_absolute() or config.is_symlink() or config.stat().st_mode & 0o077:
@@ -61,9 +73,14 @@ def main():
             readers = [threading.Thread(target=b.read, args=(pipe,), daemon=True)
                        for b, pipe in ((stdout, process.stdout), (stderr, process.stderr))]
             for thread in readers: thread.start()
-            process.stdin.write(prompt_input('gemini', 'Diagnostic connectivity test.',
+            task = (
                 'Use search_web once to find the official UNESCO page for the White City of Tel Aviv. '
-                'Return its title and URL. If the search fails, say that it failed; do not repeat the search.'))
+                'Return its title and URL. If the search fails, say that it failed; do not repeat the search.'
+                if args.task == 'unesco' else
+                'Use search_web to look up the public Hadera city hall at Rothschild 21, Hadera, Israel. '
+                'Search in Hebrew for its address and neighborhood. Make at most three searches. '
+                'Return verified facts and source URLs in Hebrew. If a search fails, report that failure and stop.')
+            process.stdin.write(prompt_input('gemini', 'Diagnostic connectivity test.', task))
             process.stdin.close()
             deadline = time.monotonic() + 90
             while process.poll() is None and time.monotonic() < deadline and not stdout.exceeded and not stderr.exceeded:
@@ -89,7 +106,10 @@ def main():
                 }.items() if any(phrase in detail for phrase in phrases)]
                 tools.append(dict(search=info.get('name') == 'search_web', error=bool(info.get('error')),
                     done=step.get('state') == 'DONE', categories=categories,
-                    outputPresent=bool(info.get('output'))))
+                    outputPresent=bool(info.get('output')),
+                    errorDetail=diagnostic_text(info['error']) if info.get('error') else None))
+            finals = [json.loads(line).get('result', {}) for line in raw.splitlines()
+                      if line.startswith(b'{') and json.loads(line).get('event') == 'result']
             try:
                 result = parse_result('gemini', raw, bytes(stderr.data), state.get('ExitCode'),
                     tool_registry_digest=manifest['toolRegistryDigest'], capability_profile=manifest['capabilityProfile'])
@@ -99,7 +119,9 @@ def main():
                 parsed, source = False, False
             print(json.dumps(dict(event='SEARCH_DIAGNOSTIC', connection=args.connection,
                 nativeExit=state.get('ExitCode'), parsed=parsed, unescoSource=source,
-                protocol=stream_diagnostics(raw), tools=tools)), flush=True)
+                protocol=stream_diagnostics(raw), tools=tools,
+                errors=[diagnostic_text(f['error']) for f in finals if f.get('error')],
+                stderrDetail=diagnostic_text(bytes(stderr.data).decode('utf-8', errors='replace')))), flush=True)
         finally:
             engine.stop(name)
             engine.remove(name)
