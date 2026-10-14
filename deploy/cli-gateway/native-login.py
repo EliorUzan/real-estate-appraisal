@@ -85,7 +85,12 @@ def main():
                                 # partially received OAuth state value.
                                 if not re.search(re.escape(found) + rb'[\s\x1b\x07]', pending): continue
                                 shown.add(found)
-                                print('\nCLAUDE_NATIVE_AUTH_URL\n' + found.decode() + '\nEND_AUTH_URL', flush=True)
+                                url = found.decode()
+                                # docker attach puts the terminal in raw mode;
+                                # explicit CRLF also works with terminal wrap off.
+                                print('\r\nCLAUDE_NATIVE_AUTH_URL\r\n' + '\r\n'.join(
+                                    url[i:i + 16] for i in range(0, len(url), 16)) +
+                                    '\r\nEND_AUTH_URL\r\n', end='', flush=True)
                         if b'Paste code here' in pending and 'prompt' not in shown:
                             shown.add('prompt'); print('Paste the official authorization code into this native login session:', flush=True)
                         if b'Login successful' in pending and 'success' not in shown:
