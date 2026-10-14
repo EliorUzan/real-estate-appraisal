@@ -6,8 +6,8 @@ import {canSubmitCli} from './cli-status';
 import {canWakeForPrompt} from './cli-host-ready';
 import {useCliProviderHost} from './use-cli-provider-host';
 
-export function useCliAccount(active=true){
- const [provider,setProvider]=useState<CliProvider>('gemini');
+export function useCliAccount(active=true,initialProvider:CliProvider='gemini'){
+ const [provider,setProvider]=useState<CliProvider>(initialProvider);
  const connections=useCliConnections(active),onboarding=useCliConnectionController();
  const firstUse=onboarding?.firstUse;
  useEffect(()=>{if(active&&provider==='gemini'&&connections.verified&&!connections.loading)firstUse?.();},[active,provider,connections.verified,connections.loading,firstUse]);

@@ -12,6 +12,10 @@ export async function cliAction(db:DB,user:string,b:Record<string,unknown>,size:
     const previous=await db.rpc("cli_lookup_submission",{p_user:user,p_request:b.requestId,p_hash:body.requestHash});
     dbProblem(previous.error);
     if(previous.data?.job)return {data:await presentation(db,previous.data),status:["queued","running","cancel_requested"].includes(previous.data.job.status)?202:200};
+    if((b.evidence as {kind?:string}|undefined)?.kind==='over'){
+      const accounts=await db.rpc('cli_user_action',{p_user:user,p_action:'listCliConnections',p_body:{}});dbProblem(accounts.error);
+      if(!accounts.data?.providers?.some((p:{provider:string;connection?:{id:string;status:string}})=>p.provider==='claude'&&p.connection?.id===b.connectionId&&p.connection.status==='connected'))throw new CliProblem('CONNECTION_CHANGED');
+    }
   }
   for(let attempt=0;attempt<2;attempt++){
     if(action==="createCliJob"){
@@ -23,8 +27,8 @@ export async function cliAction(db:DB,user:string,b:Record<string,unknown>,size:
       if(section==='comparable_sales'){
         const task=await prepareCliTransactions(b.evidence,String(b.address),user,dependencies.collectorToken??'');
         context=task.context;
-        const contract=task.context.kind==='govmap'?'Return only JSON with assessments [{id,reason,descriptionScore}]. Include each supplied candidate ID exactly once.':'Return only JSON with selected [{id,reason,descriptionScore}] and keyPoints [{text,transactionIds}].';
-        frozen={prompt:(snapshot.data?.content??task.prompt)+'\n\n'+contract+' Use only candidate IDs and source facts in the supplied task. No other output.',input:task.input+'\n\nAdditional request (user data):\n'+String(b.additionalRequest)};
+        const contract=task.context.kind==='over'?task.prompt:task.context.kind==='govmap'?'Return only JSON with assessments [{id,reason,descriptionScore}]. Include each supplied candidate ID exactly once.':'Return only JSON with selected [{id,reason,descriptionScore}] and keyPoints [{text,transactionIds}].';
+        frozen={prompt:(task.context.kind==='over'?task.prompt:snapshot.data?.content??task.prompt)+'\n\n'+(task.context.kind==='over'?'':contract)+' Use only candidate IDs and source facts in the supplied task. No other output.',input:task.input+'\n\nAdditional request (user data):\n'+String(b.additionalRequest)};
       }else{
         if(section==='plot_description')evidence=plotEvidence(b.evidence,String(b.address));
         frozen=generationInput(section,snapshot.data?.content,String(b.address),String(b.example),String(b.additionalRequest),evidence?JSON.stringify(evidence):'');

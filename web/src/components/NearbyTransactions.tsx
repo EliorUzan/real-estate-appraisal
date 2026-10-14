@@ -7,6 +7,7 @@ import { api } from "../lib/edge";
 import { Icon, Models } from "./ProviderControls";
 import { TransactionTable } from "./TransactionTable";
 import { ImportedTransactions } from "./ImportedTransactions";
+import { AutomaticComparables } from './AutomaticComparables';
 
 import {transactionFormIssues} from '../lib/transaction-form-issues';
 import {useCliAccount} from '../lib/use-cli-account';
@@ -18,10 +19,12 @@ type Account = { defaultProvider: string; settings: { provider_id: string; model
 const optionalNumber = (s: string) => s === "" ? null : Number(s);
 
 export function NearbyTransactions({ data, onSettings,...execution }: { data: Account; onSettings: () => void }&Execution) {
-  const [source, setSource] = useState("nadlan");
+  const [source, setSource] = useState("over");
+  const [legacyMode,setLegacyMode]=useState<'api'|'cli'>(execution.executionMode??'api');
   return <>
-    <label>מקור העסקאות<select value={source} onChange={e => setSource(e.target.value)}><option value="nadlan">קישור Nadlan — איסוף וניתוח</option><option value="import">טבלה שסופקה וקישור Nadlan</option><option value="govmap">חיפוש כתובת ב־GovMap</option></select></label>
-    {source !== "govmap" ? <ImportedTransactions key={source} automatic={source === "nadlan"} data={data} onSettings={onSettings} {...execution}/> : <GovMapNearbyTransactions data={data} onSettings={onSettings} {...execution}/>}
+    <label>מקור העסקאות<select value={source} onChange={e => setSource(e.target.value)}><option value="over">עסקאות רשות המסים / over.org.il — אוטומטי</option><option value="nadlan">Nadlan — מסלול קודם</option><option value="import">טבלה שסופקה וקישור Nadlan</option><option value="govmap">חיפוש כתובת ב־GovMap</option></select></label>
+    {source!=='over'&&<label>אופן הפעלה<select value={legacyMode} onChange={e=>setLegacyMode(e.target.value==='cli'?'cli':'api')}><option value='api'>API</option><option value='cli'>CLI · חשבון אישי (ניסוי)</option></select></label>}
+    {source === 'over' ? <AutomaticComparables onSettings={onSettings} {...execution}/> : source !== "govmap" ? <ImportedTransactions key={source+legacyMode} automatic={source === "nadlan"} data={data} onSettings={onSettings} {...execution} executionMode={legacyMode}/> : <GovMapNearbyTransactions key={legacyMode} data={data} onSettings={onSettings} {...execution} executionMode={legacyMode}/>}
   </>;
 }
 

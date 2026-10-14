@@ -32,10 +32,11 @@ export type Transaction = {
   comparison: string[]; missing: string[]; aiReason: string;
 };
 export type TransactionResult = {
+  valuation?: import('./over-transactions.ts').OverValuation;
   collection?: { sourceAddress: string; neighborhood: string; pagesCollected: number; totalRows: number; collectedRows: number; complete: boolean };
   sourceUrl?: string; analyzedCount?: number; keyPoints?: { text: string; transactionIds: string[] }[];
   query: TransactionQuery; transactions: Transaction[]; retrievedAt: string; provider: string; model: string;
-  source: "Nadlan MCP / GovMap" | "GovMap / איסוף בדפדפן" | "ייבוא משתמש / Nadlan" | "Nadlan / איסוף בדפדפן"; candidateCount: number; warnings: string[];
+  source: "Nadlan MCP / GovMap" | "GovMap / איסוף בדפדפן" | "ייבוא משתמש / Nadlan" | "Nadlan / איסוף בדפדפן" | "רשות המסים / over.org.il"; candidateCount: number; warnings: string[];
 };
 
 export function validateTransactionInput(value: unknown): RecordValue {

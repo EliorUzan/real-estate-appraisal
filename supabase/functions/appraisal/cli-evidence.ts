@@ -4,13 +4,15 @@ import {compareDirectTransactions} from './nearby-transactions.ts';
 import {verifyCollection,type CollectionMeta} from './nadlan-browser.ts';
 import type {TransactionResult} from './nearby-transactions.ts';
 import type {callProvider} from './providers.ts';
+import {Problem} from './providers.ts';
+import {collectOverTransactions,overSubject,overPromptInput,overTransactionOutput,OVER_PROMPT,type OverContext} from './over-transactions.ts';
 
 type Obj=Record<string,unknown>;
 const obj=(v:unknown):Obj=>{requireThat(v!==null&&typeof v==='object'&&!Array.isArray(v));return v as Obj;};
 function keys(value:Obj,allowed:string[]){requireThat(Object.keys(value).every(k=>allowed.includes(k)));}
 const options={provider:'CLI',model:'provider-default',key:''};
 type TransactionContext={kind:'nadlan';input:{query:unknown;table:unknown;sourceUrl:unknown};collection?:CollectionMeta;createdAt:string}
- | {kind:'govmap';query:unknown;evidence:unknown;createdAt:string};
+ | {kind:'govmap';query:unknown;evidence:unknown;createdAt:string} | OverContext;
 
 export function plotEvidence(value:unknown,address:string,now=new Date()){
  const e=obj(value);
@@ -23,6 +25,15 @@ export function plotEvidence(value:unknown,address:string,now=new Date()){
 // adapter. No provider API call occurs. The exact validated task is frozen.
 export async function prepareCliTransactions(value:unknown,address:string,owner:string,collectorToken:string,now=new Date()){
  const e=obj(value);let context:TransactionContext;
+ if(e.kind==='over'){
+  keys(e,['kind','query']);
+  try{
+   const subject=overSubject(e.query,now);requireThat(subject.address===address);
+   const collected=await collectOverTransactions(e.query,{now});
+   requireThat(collected.selected.length>=3,'INSUFFICIENT_COMPARABLES');
+   return {context:collected,prompt:OVER_PROMPT,input:overPromptInput(collected)};
+  }catch(error){if(error instanceof Problem){const problem=new CliProblem('INVALID_INPUT');problem.message=error.message;throw problem;}throw error;}
+ }
  if(e.kind==='nadlan'){
   keys(e,['kind','query','table','sourceUrl','collectionProof']);
   const query=obj(e.query);requireThat(query.address===address);
@@ -43,6 +54,7 @@ export async function prepareCliTransactions(value:unknown,address:string,owner:
 }
 
 async function run(context:TransactionContext,raw:string,provider?:typeof callProvider):Promise<TransactionResult>{
+ if(context.kind==='over')return overTransactionOutput(context,raw);
  const deps={now:new Date(context.createdAt),provider:provider??(async()=>raw)};
  return context.kind==='nadlan'
   ? analyzeImportedTransactions(context.input,options,{...deps,collection:context.collection})
@@ -59,6 +71,7 @@ export async function cliTransactionOutput(context:unknown,raw:string,provider:s
 
 export function transactionReport(result:TransactionResult){
  return ['השוואת עסקאות — '+result.query.address,
+  ...(result.valuation?[`אומדן אינדיקטיבי: ${result.valuation.estimate??'אין די נתונים'} ₪; טווח ${result.valuation.low??'—'}–${result.valuation.high??'—'} ₪`,result.valuation.explanation,...(result.valuation.assumptions??[])]:[]),
   ...result.transactions.map(t=>`${t.address??t.parcel??t.id} · ${t.date??''} · ${t.amount??'לא ידוע'} ₪ · ${t.area??'לא ידוע'} מ״ר\n${t.aiReason}`),
   ...(result.keyPoints??[]).map(p=>p.text),...result.warnings].join('\n\n');
 }
