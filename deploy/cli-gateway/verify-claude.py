@@ -126,15 +126,22 @@ def main():
             finals = [e for e in events if e.get('type') == 'result']
             tools = [item.get('name') for e in events if e.get('type') == 'assistant'
                      for item in e.get('message',{}).get('content',[]) if item.get('type') == 'tool_use']
+            search_ids = {item.get('id') for e in events if e.get('type') == 'assistant'
+                          for item in e.get('message',{}).get('content',[])
+                          if item.get('type') == 'tool_use' and item.get('name') == 'WebSearch'}
+            search_results = [item for e in events if e.get('type') == 'user'
+                              for item in e.get('message',{}).get('content',[])
+                              if item.get('type') == 'tool_result' and item.get('tool_use_id') in search_ids]
+            successful_searches = sum(item.get('is_error') is not True and 'https://' in json.dumps(item.get('content')) for item in search_results)
             final = finals[0] if len(finals) == 1 else {}
             outcome.update(exitCode=code, tools=sorted(set(tools)), availableTools=initial.get('tools'),
                            terminalSubtype=final.get('subtype'), nativeError=final.get('is_error'),
                            canaryLeaked=marker.encode() in stdout.data, stdoutBytes=len(stdout.data), stderrBytes=len(stderr.data))
             result = parse_result('claude',json.dumps(final).encode(),bytes(stderr.data),code,capability_profile=PROFILE)
             search_count = (final.get('usage',{}).get('server_tool_use') or {}).get('web_search_requests',0)
-            outcome['searchRequests'] = search_count
+            outcome.update(searchRequests=search_count,searchResultCount=len(search_results),successfulSearchResults=successful_searches)
             if (set(initial.get('tools',[])) != {'WebSearch'} or initial.get('mcp_servers') or set(tools) != {'WebSearch'}
-                    or outcome['canaryLeaked'] or search_count < 1 or 'CLAUDE_GATEWAY_OK' not in result.text):
+                    or outcome['canaryLeaked'] or successful_searches < 1 or 'CLAUDE_GATEWAY_OK' not in result.text):
                 raise ValueError('NATIVE_CAPABILITY_CHECK_FAILED')
             outcome['checks'] = dict.fromkeys(CHECKS, True)
         finally:
