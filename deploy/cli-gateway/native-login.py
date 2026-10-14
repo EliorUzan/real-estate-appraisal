@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import threading
 from cli_gateway.client import Client
 from cli_gateway.runner import Docker
 from cli_gateway.recovery import Journal
@@ -67,8 +68,34 @@ def main():
                         build["image"], *commands[provider]])
         code = None
         try:
-            code = subprocess.run([engine.executable, "start", "--attach", "--interactive", name],
-                                  env=engine.env, timeout=310, check=False).returncode
+            if provider == 'claude':
+                # The CLI's long authorization URL can be overwritten by terminal
+                # redraws on narrow remote screens. Preserve the native flow but
+                # render only its URL/prompt, never echoed codes or credentials.
+                process = subprocess.Popen([engine.executable, 'start', '--attach', '--interactive', name],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=engine.env)
+                def display():
+                    pending = b''
+                    shown = set()
+                    while chunk := process.stdout.read1(4096):
+                        pending = (pending + chunk)[-32768:]
+                        for found in re.findall(rb'https://[^\s\x1b<>"\x07]+', pending):
+                            if b'code_challenge=' in found and b'state=' in found and found not in shown:
+                                # Wait for a complete line rather than emitting a
+                                # partially received OAuth state value.
+                                if not re.search(re.escape(found) + rb'[\s\x1b\x07]', pending): continue
+                                shown.add(found)
+                                print('\nCLAUDE_NATIVE_AUTH_URL\n' + found.decode() + '\nEND_AUTH_URL', flush=True)
+                        if b'Paste code here' in pending and 'prompt' not in shown:
+                            shown.add('prompt'); print('Paste the official authorization code into this native login session:', flush=True)
+                        if b'Login successful' in pending and 'success' not in shown:
+                            shown.add('success'); print('Native Claude login successful.', flush=True)
+                reader = threading.Thread(target=display, daemon=True); reader.start()
+                code = process.wait(timeout=310)
+                reader.join(timeout=2)
+            else:
+                code = subprocess.run([engine.executable, "start", "--attach", "--interactive", name],
+                                      env=engine.env, timeout=310, check=False).returncode
         except subprocess.TimeoutExpired:
             code = 124
         finally:
