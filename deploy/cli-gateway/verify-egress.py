@@ -12,6 +12,7 @@ from cli_gateway.runner import Docker
 
 PROBE = '''import json,socket,ssl,urllib.request,urllib.error,sys
 proxy,host,port=sys.argv[1],sys.argv[2],int(sys.argv[3])
+approved=json.loads(sys.argv[4])
 tests={}
 def connectable(host,port):
     try:
@@ -33,7 +34,7 @@ for label,target in [('unlisted_host','example.com:443'),('private_ip','127.0.0.
         s.sendall(('CONNECT '+target+' HTTP/1.1\\r\\nHost: '+target+'\\r\\n\\r\\n').encode())
         tests[label+'_denied']=s.recv(256).startswith(b'HTTP/1.1 403 ')
 opener=urllib.request.build_opener(urllib.request.ProxyHandler({'https':proxy}),urllib.request.HTTPSHandler(context=ssl.create_default_context()))
-for name,url in [('approved_google_tls','https://oauth2.googleapis.com/'),('approved_google_identity_tls','https://www.googleapis.com/oauth2/v3/tokeninfo'),('approved_google_profile_tls','https://lh3.googleusercontent.com/')]:
+for name,url in approved:
     try:
         with opener.open(urllib.request.Request(url,method='HEAD'),timeout=15) as r:tests[name]=r.status<500
     except urllib.error.HTTPError as e:tests[name]=e.code<500
@@ -63,6 +64,12 @@ def main():
     path = Path(args.egress).resolve()
     raw = path.read_bytes()
     egress = json.loads(raw)
+    probes = {
+        'cli-provider-gemini': [('approved_google_tls','https://oauth2.googleapis.com/'),('approved_google_identity_tls','https://www.googleapis.com/oauth2/v3/tokeninfo'),('approved_google_profile_tls','https://lh3.googleusercontent.com/')],
+        'cli-provider-claude': [('approved_claude_api_tls','https://api.anthropic.com/'),('approved_claude_auth_tls','https://claude.ai/'),('approved_claude_refresh_tls','https://platform.claude.com/')],
+    }
+    if egress['network'] not in probes:
+        raise ValueError('Unreviewed network probe destinations')
     engine = Docker()
     with (data / "supervisor.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -95,7 +102,7 @@ def main():
             probe_phase = "isolated network checks"
             engine.command(["create", "--name", name, "--label", "appraisal.cli-egress-probe=1",
                             "--network", egress["network"], *flags, *fixed, egress["proxyImage"], "-c", PROBE,
-                            egress["proxyUrl"], host, str(port)])
+                            egress["proxyUrl"], host, str(port), json.dumps(probes[egress['network']])])
             process = subprocess.run([engine.executable, "start", "--attach", name],
                                      capture_output=True, env=engine.env, timeout=45, check=False)
             probe_phase = "network verdict validation"

@@ -21,7 +21,12 @@ def restore_image(engine, manifest, data):
         return
     except GatewayError:
         pass
-    archive, receipt = Path(data) / 'runtime-image.tar', Path(data) / 'runtime-image.json'
+    # Retain the original Google backup; additional providers have separate
+    # receipts so provisioning one provider never replaces another's recovery.
+    stem = 'runtime-image' if manifest.get('provider', 'gemini') == 'gemini' else 'runtime-image-' + manifest['provider']
+    if manifest.get('provider', 'gemini') not in ('gemini', 'claude'):
+        raise ValueError('Unsupported personal provider backup')
+    archive, receipt = Path(data) / (stem + '.tar'), Path(data) / (stem + '.json')
     for path in (archive, receipt):
         if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077:
             raise ValueError('Private approved runtime backup required')
@@ -39,7 +44,8 @@ def restore_relay(engine, manifest):
     controls(engine, manifest, allow_stopped_relay=True)
     report = json.loads(regular_bytes(manifest['egressFile'], manifest['egressDigest']))
     name = report['proxyContainer']
-    if name != 'cli-egress-gemini' or report['network'] != 'cli-provider-gemini':
+    provider = manifest.get('provider', 'gemini')
+    if provider not in ('gemini', 'claude') or name != 'cli-egress-' + provider or report['network'] != 'cli-provider-' + provider:
         raise ValueError('Only the reviewed personal relay can be restored')
     if engine.inspect(name).get('Running'):
         return

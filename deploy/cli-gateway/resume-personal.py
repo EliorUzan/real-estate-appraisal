@@ -1,4 +1,4 @@
-"""Restore the approved personal Antigravity worker after a Codespaces stop.
+"""Restore approved personal CLI runtimes after a Codespaces stop.
 
 Restarts only the existing reviewed relay, restores the already-approved scoped
 firewall rule, verifies routing, then runs the normal supervisor. No inference,
@@ -42,11 +42,10 @@ def main():
     client = Client(values['CLI_WORKER_URL'], values['CLI_HOST_ID'], secret.read_text().strip())
     data = Path(values['CLI_DATA_DIR'])
     approved = manifests(values['CLI_MANIFEST_DIR'])
-    if len(approved) != 1:
-        raise ValueError('One reviewed personal runtime required')
-    entry = next(iter(approved.values()))
-    if entry.get('personalExperimentApproved') is not True or entry.get('provider') != 'gemini':
-        raise ValueError('Only the reviewed personal Google experiment is covered')
+    if not approved or len({e['provider'] for e in approved.values()}) != len(approved):
+        raise ValueError('One reviewed runtime per provider required')
+    if any(e.get('personalExperimentApproved') is not True or e.get('provider') not in ('gemini', 'claude') for e in approved.values()):
+        raise ValueError('Only reviewed personal runtimes are covered')
     engine = Docker()
     STAGE = 'exclusive-lock'
     with (data / 'supervisor.lock').open('a') as lock:
@@ -63,13 +62,14 @@ def main():
         recover(engine, client, Journal(data / 'journal'))
         if engine.inventory():
             raise ValueError('Stopped inventory required before network restoration')
-        STAGE = 'approved-image-restore'
-        restore_image(engine, entry, data)
-        STAGE = 'approved-relay-restore'
-        restore_relay(engine, entry)
+        for entry in approved.values():
+            STAGE = entry['provider'] + '-approved-image-restore'
+            restore_image(engine, entry, data)
+            STAGE = entry['provider'] + '-approved-relay-restore'
+            restore_relay(engine, entry)
     scripts = Path(__file__).resolve().parent
     # Each reviewed child takes the same lock independently. No shell expansion.
-    for name in ('repair-codespaces-network.py', 'verify-egress.py'):
+    for entry, name in ((e, name) for e in approved.values() for name in ('repair-codespaces-network.py', 'verify-egress.py')):
         STAGE = name.removesuffix('.py')
         before = set(data.glob('cli-egress-probe-*.json'))
         result = subprocess.run([sys.executable, str(scripts / name), '--config', str(config),
@@ -86,7 +86,7 @@ def main():
                 or any(value is not True for value in network['tests'].values())):
                 raise ValueError('Fresh network checks did not pass')
     STAGE = 'supervisor'
-    print('Personal Antigravity worker starting. Codespaces can stop when idle.', flush=True)
+    print('Personal CLI worker starting. Codespaces can stop when idle.', flush=True)
     supervise()
 
 

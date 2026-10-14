@@ -11,6 +11,7 @@ from .contracts import GatewayError
 from .recovery import Journal
 from .runner import Docker, Runner, container_name
 from .research import PROFILE as RESEARCH_PROFILE, CHECKS as RESEARCH_CHECKS
+from .claude import PROFILE as CLAUDE_PROFILE, CHECKS as CLAUDE_CHECKS, VERSION as CLAUDE_VERSION
 
 PERSONAL_CHECKS = frozenset({'nativeAccountVerified', 'restrictedInferenceVerified', 'nativeReadDenied',
     'textOnlyCanaryPassed', 'networkChecksPassed', 'agentDiscovered'})
@@ -21,7 +22,7 @@ def personal_approval(entry):
     if entry.get('personalExperimentApproved') is not True:
         return False
     if (entry.get('executionHostMode') != 'codespaces-personal' or os.environ.get('CODESPACES') != 'true'
-        or entry.get('provider') != 'gemini' or entry.get('customerReleaseApproved') is not False
+        or entry.get('provider') not in {'gemini', 'claude'} or entry.get('customerReleaseApproved') is not False
         or entry.get('g1Passed') is not False or entry.get('g2Passed') is not False):
         raise ValueError('Personal approval cannot authorize customer release')
     path = Path(entry.get('evidenceFile', ''))
@@ -32,16 +33,21 @@ def personal_approval(entry):
         raise ValueError('Personal evidence changed after review')
     evidence = json.loads(raw)
     checks = evidence.get('checks')
-    expected_checks = RESEARCH_CHECKS if entry.get('capabilityProfile') == RESEARCH_PROFILE else PERSONAL_CHECKS
-    if entry.get('capabilityProfile') not in (None, RESEARCH_PROFILE):
+    claude = entry.get('provider') == 'claude'
+    if claude and (entry.get('capabilityProfile') != CLAUDE_PROFILE or entry.get('cliRuntime') != 'claude-code' or entry.get('version') != CLAUDE_VERSION):
+        raise ValueError('Unsupported personal Claude runtime')
+    if not claude and entry.get('capabilityProfile') == CLAUDE_PROFILE:
+        raise ValueError('Claude profile cannot authorize another provider')
+    expected_checks = CLAUDE_CHECKS if claude else RESEARCH_CHECKS if entry.get('capabilityProfile') == RESEARCH_PROFILE else PERSONAL_CHECKS
+    if entry.get('capabilityProfile') not in (None, RESEARCH_PROFILE, CLAUDE_PROFILE):
         raise ValueError('Unknown capability profile')
     if evidence.get('capabilityProfile') != entry.get('capabilityProfile'):
         raise ValueError('Evidence capability scope mismatch')
     if (not isinstance(checks, dict) or set(checks) != expected_checks
         or any(value is not True for value in checks.values()) or evidence.get('customerReleaseApproved') is not False):
         raise ValueError('Incomplete personal verification')
-    for key in ('provider', 'cliRuntime', 'version', 'image', 'personalRuntimeRef', 'policyDigest',
-                'agentDigest', 'egressDigest', 'toolRegistryDigest'):
+    scope = ('provider', 'cliRuntime', 'version', 'image', 'personalRuntimeRef', 'policyDigest', 'egressDigest')
+    for key in scope + (() if claude else ('agentDigest', 'toolRegistryDigest')):
         if not entry.get(key) or evidence.get(key) != entry[key]:
             raise ValueError('Personal evidence scope mismatch')
     return True

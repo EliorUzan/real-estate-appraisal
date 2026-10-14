@@ -11,6 +11,7 @@ from .adapters.base import stream_diagnostics
 from .contracts import GatewayError, Result, MAX_STDOUT, MAX_STDERR, HEARTBEAT_SECONDS, LEASE_MARGIN_SECONDS, runtime_seconds
 from .network import controls as network_controls
 from .research import PROFILE as RESEARCH_PROFILE, POLICY as RESEARCH_POLICY, AGENT as RESEARCH_AGENT, AGENT_NAME as RESEARCH_AGENT_NAME
+from .claude import PROFILE as CLAUDE_PROFILE, POLICY as CLAUDE_POLICY
 
 GOOGLE_AGENT = b'''---
 name: cli-gateway-text
@@ -47,7 +48,7 @@ class Docker:
     def command(self, args, timeout=15):
         result = subprocess.run([self.executable, *args], capture_output=True, env=self.env, timeout=timeout, check=False)
         if result.returncode:
-            if args == ['start', 'cli-egress-gemini'] and b'RWLayer of container' in result.stderr and b'is unexpectedly nil' in result.stderr:
+            if args in (['start', 'cli-egress-gemini'], ['start', 'cli-egress-claude']) and b'RWLayer of container' in result.stderr and b'is unexpectedly nil' in result.stderr:
                 raise GatewayError('ENGINE_LAYER_MISSING')
             raise GatewayError("ENGINE_FAILED")
         return result.stdout
@@ -75,10 +76,23 @@ class Docker:
             raise ValueError("Provider image must use an immutable digest")
         controls = []
         research = manifest.get('capabilityProfile') == RESEARCH_PROFILE
-        if manifest.get('capabilityProfile') not in (None, RESEARCH_PROFILE):
+        if manifest.get('capabilityProfile') not in (None, RESEARCH_PROFILE, CLAUDE_PROFILE):
             raise ValueError('Unknown capability profile')
         if research and (job['provider'] != 'gemini' or manifest.get('executionHostMode') != 'codespaces-personal'):
             raise ValueError('Research profile requires the personal Google runtime')
+        if manifest.get('capabilityProfile') == CLAUDE_PROFILE:
+            from .network import regular_bytes
+            if job['provider'] != 'claude' or manifest.get('cliRuntime') != 'claude-code':
+                raise ValueError('Claude profile requires Claude Code')
+            path = manifest.get('settingsFile', '')
+            if json.loads(regular_bytes(path, manifest.get('policyDigest'))) != CLAUDE_POLICY:
+                raise ValueError('Claude policy changed after review')
+            controls += ['--mount', 'type=bind,source=' + path + ',target=/opt/gateway/claude-research-settings.json,readonly']
+            controls += ['--env', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1',
+                         '--env', 'ENABLE_CLAUDEAI_MCP_SERVERS=false', '--env', 'CLAUDE_CODE_DISABLE_ARTIFACT=1',
+                         '--env', 'CLAUDE_CODE_SKIP_PROMPT_HISTORY=1']
+            for directory in ('projects', 'debug', 'plugins', 'agents', 'skills', 'commands'):
+                controls += ['--tmpfs', '/home/agent/.claude/' + directory + ':rw,noexec,nosuid,size=16m,uid=1000,gid=1000']
         if job["provider"] == "gemini":
             if manifest.get("cliRuntime") != "antigravity":
                 raise ValueError("An Antigravity-specific manifest is required")

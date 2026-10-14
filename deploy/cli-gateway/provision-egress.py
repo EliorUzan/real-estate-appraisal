@@ -32,8 +32,12 @@ def main():
         os.environ["DOCKER_HOST"] = values["DOCKER_HOST"]
     data = Path(values["CLI_DATA_DIR"])
     build = json.loads(Path(args.build).read_text())
-    if build.get("cliRuntime") != "antigravity" or not re.fullmatch(r"sha256:[0-9a-f]{64}", build["image"]):
+    provider = build.get('provider')
+    runtimes = {'gemini': 'antigravity', 'claude': 'claude-code'}
+    runtime = build.get('cliRuntime') or ('claude-code' if provider == 'claude' and build.get('package') == '@anthropic-ai/claude-code' and build.get('command') == 'claude' else None)
+    if provider not in runtimes or runtime != runtimes[provider] or not re.fullmatch(r"sha256:[0-9a-f]{64}", build["image"]):
         raise ValueError("Reviewed immutable image required")
+    network, relay = 'cli-provider-' + provider, 'cli-egress-' + provider
     with (data / "supervisor.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         engine = Docker()
@@ -41,23 +45,23 @@ def main():
             raise ValueError("Stop native jobs and login containers first")
         if Journal(data / 'journal').load():
             raise ValueError('Reconcile the outstanding attempt first')
-        report_path = data / 'egress-gemini.json'
+        report_path = data / ('egress-' + provider + '.json')
         if args.replace_drained:
             if report_path.is_symlink() or not report_path.is_file() or report_path.stat().st_mode & 0o077:
                 raise ValueError('Existing private regular relay report required')
             previous = report_path.read_bytes()
-            controls(engine, {'network':'cli-provider-gemini', 'egressFile':str(report_path.resolve()),
+            controls(engine, {'network':network, 'egressFile':str(report_path.resolve()),
                               'egressDigest':hashlib.sha256(previous).hexdigest()})
             # controls verifies the sole owned relay, mounts, command and network.
-            engine.stop('cli-egress-gemini')
-            engine.remove('cli-egress-gemini')
+            engine.stop(relay)
+            engine.remove(relay)
         elif report_path.exists():
             raise ValueError('A relay report already exists; reviewed drained replacement required')
-        directory = data / "egress-gemini"
+        directory = data / ('egress-' + provider)
         directory.mkdir(mode=0o700, exist_ok=True)
         inputs = {
             "egress.py": Path(__file__).resolve().parents[2] / "src/cli_gateway/egress.py",
-            "policy.json": Path(__file__).resolve().with_name("antigravity-egress.json"),
+            "policy.json": Path(__file__).resolve().with_name('antigravity-egress.json' if provider == 'gemini' else 'claude-egress.json'),
         }
         digests = {}
         for name, source in inputs.items():
@@ -80,7 +84,6 @@ def main():
                 target.write_bytes(raw)
                 target.chmod(0o444)
             digests[name] = hashlib.sha256(raw).hexdigest()
-        network, relay = "cli-provider-gemini", "cli-egress-gemini"
         networks = engine.command(["network", "ls", "--format", "{{.Name}}"]).decode().splitlines()
         if network not in networks:
             engine.command(["network", "create", "--driver", "bridge", "--internal",
@@ -109,7 +112,7 @@ def main():
                   "codeDigest": digests["egress.py"], "policyDigest": digests["policy.json"],
                   "codeFile": str(directory / "egress.py"), "policyFile": str(directory / "policy.json"),
                   "g2Passed": False}
-        target = data / "egress-gemini.json.new"
+        target = data / ('egress-' + provider + '.json.new')
         with target.open("x") as output:
             target.chmod(0o600)
             json.dump(report, output, indent=2)

@@ -37,12 +37,12 @@ def main():
         if engine.inventory():
             raise ValueError('Stop native jobs and logins first')
         controls(engine, {'network': report['network'], 'egressFile': str(path), 'egressDigest': hashlib.sha256(raw).hexdigest()})
-        if report['network'] != 'cli-provider-gemini':
-            raise ValueError('This compatibility repair is scoped to Google')
+        if report['network'] not in ('cli-provider-gemini', 'cli-provider-claude'):
+            raise ValueError('This compatibility repair requires a reviewed provider network')
         bridge = 'br-' + report['networkId'][:12]
         from urllib.parse import urlsplit
         ip = urlsplit(report['proxyUrl']).hostname
-        chain = 'CLI-GEMINI-RELAY'
+        chain = 'CLI-' + report['network'].removeprefix('cli-provider-').upper() + '-RELAY'
         prefix = ['/usr/bin/sudo', '-n', '/usr/sbin/iptables-legacy', '-w', '5']
         def run(args, optional=False):
             result = subprocess.run([*prefix, *args], capture_output=True, timeout=10, check=False)

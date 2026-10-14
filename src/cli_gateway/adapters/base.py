@@ -67,6 +67,9 @@ def stream_diagnostics(stdout):
 def invocation(provider, *, capability_profile=None):
     # Policy/config is baked into the approved image, never provided by a customer.
     if provider == "claude":
+        from ..claude import PROFILE as CLAUDE_PROFILE, arguments
+        if capability_profile == CLAUDE_PROFILE:
+            return arguments()
         return ["claude", "-p", "--output-format", "json", "--tools", "",
                 "--disallowedTools", "mcp__*", "--strict-mcp-config", "--mcp-config", "{}",
                 "--setting-sources", "", "--settings", "/opt/gateway/claude-settings.json"]
