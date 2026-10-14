@@ -50,12 +50,12 @@ export function validateUserAction(value:unknown,size:number){
   const b=object(value);requireValue(b.schemaVersion===1);
   const base=["schemaVersion","action"];
   if(b.action==="startCliLogin"||b.action==="ensureCliHostReady"){
-    keys(b,[...base,"provider","requestId","consent"]);requireValue(b.provider==="gemini");id(b.requestId);
+    keys(b,[...base,"provider","requestId","consent"]);requireValue(b.provider==="gemini"||(b.action==="ensureCliHostReady"&&b.provider==="claude"));id(b.requestId);
     if(b.action==="startCliLogin")requireValue(b.consent===true);
   }else if(b.action==="verifyCliConnection"){
     keys(b,[...base,"connectionId","requestId","consent"]);id(b.connectionId);id(b.requestId);requireValue(b.consent===true);
   }else if(b.action==="getActiveCliLogin"||b.action==="getCliOnboarding"){
-    keys(b,[...base,"provider"]);requireValue(b.provider==="gemini");
+    keys(b,[...base,"provider"]);requireValue(b.provider==="gemini"||(b.action==="getCliOnboarding"&&b.provider==="claude"));
   }else if(["getCliLogin","getCliLoginChallenge","cancelCliLogin"].includes(String(b.action))){keys(b,[...base,"sessionId"]);id(b.sessionId);
   }else if(b.action==="getMapsDemoSetup"){
     keys(b,base);

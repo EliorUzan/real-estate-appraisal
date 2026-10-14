@@ -1,7 +1,7 @@
 begin;
 do $$
 declare u uuid:=gen_random_uuid();other uuid:=gen_random_uuid();w uuid:=gen_random_uuid();host uuid:=gen_random_uuid();
- conn uuid;session uuid;lease uuid;challenge uuid:=gen_random_uuid();key_id uuid:=gen_random_uuid();submission uuid:=gen_random_uuid();body jsonb;envelope jsonb;r jsonb;
+ conn uuid;claude_conn uuid;session uuid;lease uuid;challenge uuid:=gen_random_uuid();key_id uuid:=gen_random_uuid();submission uuid:=gen_random_uuid();body jsonb;envelope jsonb;r jsonb;
 begin
  insert into auth.users(id) values(u),(other);insert into public.workspaces(id,name) values(w,'Maps/wake synthetic');
  insert into public.workspace_members(workspace_id,user_id,status) values(w,u,'active'),(w,other,'active');
@@ -32,6 +32,25 @@ begin
  update private.cli_hosts set last_seen_at=clock_timestamp() where id=host;
  r:=public.cli_host_wake_control('claim','{}')->'wake';body:=jsonb_build_object('operationId',r->>'operationId','leaseToken',r->>'leaseToken');
  if public.cli_host_wake_control('finish',body||'{"errorCode":null}')->>'state'<>'ready' then raise exception 'Fresh approved heartbeat ignored';end if;
+ -- A Claude-only user can wake; another allowed host owner cannot use that account.
+ update private.cli_providers set enabled=true,manifest_digest=repeat('c',64) where provider_id='claude';
+ insert into private.cli_connections(owner_id,provider_id,host_id,status) values(u,'claude',host,'connected') returning id into claude_conn;
+ update private.cli_connections set status='disconnected' where id=conn;
+ update private.cli_onboarding_config set allowed_owners=array[u,other] where host_id=host;
+ update private.cli_hosts set last_seen_at=clock_timestamp()-interval '1 minute' where id=host;
+ r:=public.cli_claude_onboarding_status(u,'getCliOnboarding','{"provider":"claude"}');
+ if r->>'nextAction'<>'start_host' or r->>'connectionId'<>claude_conn::text then raise exception 'Claude status borrowed Google identity';end if;
+ if public.cli_claude_onboarding_status(other,'getCliOnboarding','{"provider":"claude"}')->>'connectionId' is not null then raise exception 'Claude ownership leaked';end if;
+ begin perform public.cli_host_wake_user_action(other,'ensureCliHostReady',jsonb_build_object('provider','claude','requestId',gen_random_uuid()));raise exception 'Missing Claude wake owner check';exception when others then if sqlerrm<>'CONNECTION_CHANGED' then raise;end if;end;
+ r:=public.cli_host_wake_user_action(u,'ensureCliHostReady',jsonb_build_object('provider','claude','requestId',gen_random_uuid()));
+ if r->>'state'<>'requested' then raise exception 'Claude-only wake rejected';end if;
+ update private.cli_hosts set last_seen_at=clock_timestamp() where id=host;
+ r:=public.cli_host_wake_control('claim','{}')->'wake';body:=jsonb_build_object('operationId',r->>'operationId','leaseToken',r->>'leaseToken');
+ if public.cli_host_wake_control('finish',body||'{"errorCode":null}')->>'state'<>'starting' then raise exception 'Google heartbeat incorrectly marked Claude ready';end if;
+ update private.cli_hosts set manifests=jsonb_build_array(repeat('d',64),repeat('c',64)) where id=host;
+ r:=public.cli_host_wake_control('claim','{}')->'wake';body:=jsonb_build_object('operationId',r->>'operationId','leaseToken',r->>'leaseToken');
+ if public.cli_host_wake_control('finish',body||'{"errorCode":null}')->>'state'<>'ready' then raise exception 'Both provider manifests not accepted';end if;
+ if has_function_privilege('authenticated','public.cli_claude_onboarding_status(uuid,text,jsonb)','EXECUTE') then raise exception 'Claude service RPC exposed';end if;
  update private.cli_hosts set status='quarantined' where id=host;
  begin perform public.cli_host_wake_user_action(u,'ensureCliHostReady',jsonb_build_object('requestId',gen_random_uuid()));raise exception 'Quarantine cleared';exception when others then if sqlerrm<>'HOST_RECOVERY_REQUIRED' then raise;end if;end;
  if has_function_privilege('authenticated','public.cli_maps_user_action(uuid,text,jsonb)','EXECUTE') or has_table_privilege('anon','private.cli_setup_sessions','SELECT') then raise exception 'Maps control exposed';end if;

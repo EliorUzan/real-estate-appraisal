@@ -24,11 +24,14 @@ export function useCliSubmission(user:string,section:CliSection){
   const next={requestId:frozen.requestId,workspaceId:frozen.workspaceId};remember(key,next);setIdentity(next);setDone(false);
   try{
    const controller=new AbortController();abort.current=controller;
-   const state=await onboarding.status(controller.signal).catch(()=>null);
+   const connections=await cli.connections(controller.signal);
+   const provider=connections.providers.find(p=>p.connection?.id===frozen.connectionId)?.provider;
+   if(!provider)throw new Error('חשבון CLI שנבחר אינו זמין. רעננו את רשימת החשבונות.');
+   const state=await onboarding.status(controller.signal,provider).catch(()=>null);
    if(controller.signal.aborted)throw new DOMException('Cancelled','AbortError');
    if(state?.connectionId===frozen.connectionId&&state.nextAction==='start_host'&&state.wake.configured){
     setWaking(true);
-    await waitForCliHost(frozen.requestId,frozen.connectionId,{signal:controller.signal,wake:id=>onboarding.wake(id),status:()=>onboarding.status(controller.signal),connections:()=>cli.connections(controller.signal)});
+    await waitForCliHost(frozen.requestId,frozen.connectionId,{signal:controller.signal,wake:id=>onboarding.wake(id,provider),status:()=>onboarding.status(controller.signal,provider),connections:()=>cli.connections(controller.signal)});
     if(controller.signal.aborted)throw new DOMException('Cancelled','AbortError');
    }
    const r=await cli.submit(frozen);setJob(r.job);const accepted={...next,jobId:r.job.id};remember(key,accepted);setIdentity(accepted);

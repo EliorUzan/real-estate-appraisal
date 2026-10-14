@@ -3,12 +3,23 @@ import assert from 'node:assert/strict';
 import {canWakeForPrompt,waitForCliHost} from '../web/src/lib/cli-host-ready.ts';
 const provider={provider:'gemini',enabled:true,connection:{id:'owned',status:'connected',available:false,revision:1}};
 const status={connectionId:'owned',nextAction:'start_host',hostState:'asleep',wake:{configured:true,state:'starting',errorCode:null}};
-test('Send can wake only a verified saved Google connection on an asleep permitted host',()=>{
+test('Send can wake only the selected verified connection on an asleep permitted host',()=>{
  assert.equal(canWakeForPrompt(provider,status,true),true);
  assert.equal(canWakeForPrompt(provider,{...status,connectionId:'different'},true),false);
  for(const change of [{verified:false},{hostState:'quarantined'},{nextAction:'reconnect'},{configured:false},{connectionStatus:'reauth_required'}]){
   assert.ok(!canWakeForPrompt({...provider,connection:{...provider.connection,status:change.connectionStatus??'connected'}},{...status,hostState:change.hostState??status.hostState,nextAction:change.nextAction??status.nextAction,wake:{...status.wake,configured:change.configured??true}},change.verified??true));
  }
+});
+test('Claude can wake without borrowing a Google connection identity',async()=>{
+ const claude={...provider,provider:'claude',connection:{...provider.connection,id:'claude-owned'}};
+ const ownStatus={...status,connectionId:'claude-owned'};
+ assert.equal(canWakeForPrompt(claude,ownStatus,true),true);
+ assert.equal(canWakeForPrompt(claude,status,true),false);
+ let reads=0,time=0;
+ await waitForCliHost('r','claude-owned',{signal:new AbortController().signal,wake:async()=>{},status:async()=>ownStatus,
+  connections:async()=>({providers:[{...provider,connection:{...provider.connection,available:true}},{...claude,connection:{...claude.connection,available:++reads>1}}]}),
+  now:()=>time,delay:async()=>{time+=2000;}});
+ assert.equal(reads,2);
 });
 test('wake waits for the owned connection heartbeat and never submits a model request itself',async()=>{
  let time=0,wakes=0,reads=0;

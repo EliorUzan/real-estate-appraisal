@@ -8,7 +8,7 @@ const connected = {
 };
 
 test('all CLI providers remain visible with missing or unavailable connections',()=>{
-  assert.deepEqual(providerCatalog([]).map(p=>p.provider),['gemini','openai','claude']);
+  assert.deepEqual(providerCatalog([]).map(p=>p.provider),['gemini','claude','openai']);
   const pending={...connected,enabled:false,reason:'ANTIGRAVITY_ISOLATION_PENDING',connection:{...connected.connection,status:'pending_setup',available:false}};
   const catalog=providerCatalog([pending]);
   assert.equal(catalog.length,3);

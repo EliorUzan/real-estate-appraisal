@@ -28,7 +28,7 @@ export async function onboardingHandler(req:Request){
   const config=wakeConfig(name=>Deno.env.get(name));
   if(b.action==="ensureCliHostReady"&&!config)throw new OnboardingProblem("HOST_WAKE_NOT_CONFIGURED",503);
   const mapsAction=["getMapsDemoSetup","startMapsDemoSetup","getMapsDemoChallenge","submitMapsDemoKey","cancelMapsDemoSetup","removeMapsDemoKey"].includes(String(b.action));
-  const response=await db.rpc(mapsAction?"cli_maps_user_action":b.action==="ensureCliHostReady"?"cli_host_wake_user_action":"cli_onboarding_user_action",{p_user:user.id,p_action:b.action,p_body:b});
+  const response=await db.rpc(mapsAction?"cli_maps_user_action":b.action==="ensureCliHostReady"?"cli_host_wake_user_action":b.action==='getCliOnboarding'&&b.provider==='claude'?'cli_claude_onboarding_status':"cli_onboarding_user_action",{p_user:user.id,p_action:b.action,p_body:b});
   if(response.error){
    const code=response.error.message;
    const statuses:Record<string,number>={UNAUTHENTICATED:401,INACTIVE_MEMBERSHIP:403,ONBOARDING_DISABLED:403,OPERATOR_REQUIRED:403,NOT_FOUND:404,REQUEST_ID_CONFLICT:409,CONNECTION_CHANGED:409,CONNECTION_BUSY:409,VERIFICATION_REQUIRED:409,LOGIN_EXPIRED:410,SETUP_EXPIRED:410,QUEUE_FULL:429,WORKER_UNAVAILABLE:503,AUTH_REQUIRED:409,HOST_WAKE_NOT_CONFIGURED:503,HOST_RECOVERY_REQUIRED:503};

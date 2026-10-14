@@ -2,7 +2,7 @@ export type CliProvider = "claude" | "openai" | "gemini";
 export type CliConnection = {id:string;provider:CliProvider;status:string;revision:number;available:boolean;lastVerifiedAt?:string|null};
 export type CliProviderStatus = {provider:CliProvider;enabled:boolean;reason:string;connection:CliConnection|null};
 
-export const cliProviders:CliProvider[] = ["gemini", "openai", "claude"];
+export const cliProviders:CliProvider[] = ["gemini", "claude", "openai"];
 export const cliLabels:Record<CliProvider,string> = {
   gemini: "Google Antigravity",
   openai: "OpenAI Codex",
