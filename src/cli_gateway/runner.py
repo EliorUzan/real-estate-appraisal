@@ -11,7 +11,7 @@ from .adapters.base import stream_diagnostics
 from .contracts import GatewayError, Result, MAX_STDOUT, MAX_STDERR, HEARTBEAT_SECONDS, LEASE_MARGIN_SECONDS, runtime_seconds
 from .network import controls as network_controls
 from .research import PROFILE as RESEARCH_PROFILE, POLICY as RESEARCH_POLICY, AGENT as RESEARCH_AGENT, AGENT_NAME as RESEARCH_AGENT_NAME
-from .claude import PROFILE as CLAUDE_PROFILE, POLICY as CLAUDE_POLICY
+from .claude import PROFILE as CLAUDE_PROFILE, POLICY as CLAUDE_POLICY, PROFILES as CLAUDE_PROFILES, MAPS_PROFILE, MAPS_POLICY, maps_config
 
 GOOGLE_AGENT = b'''---
 name: cli-gateway-text
@@ -27,6 +27,10 @@ plugins: []
 ---
 Use only the text supplied in the request. Produce the requested answer without accessing files, running commands, browsing, invoking MCP, or delegating to other agents.
 '''
+
+
+def maps_private_file(path):
+    return not Path(path).stat().st_mode & 0o077
 
 
 def container_name(job_id, attempt):
@@ -76,18 +80,29 @@ class Docker:
             raise ValueError("Provider image must use an immutable digest")
         controls = []
         research = manifest.get('capabilityProfile') == RESEARCH_PROFILE
-        if manifest.get('capabilityProfile') not in (None, RESEARCH_PROFILE, CLAUDE_PROFILE):
+        if manifest.get('capabilityProfile') not in (None, RESEARCH_PROFILE, *CLAUDE_PROFILES):
             raise ValueError('Unknown capability profile')
         if research and (job['provider'] != 'gemini' or manifest.get('executionHostMode') != 'codespaces-personal'):
             raise ValueError('Research profile requires the personal Google runtime')
-        if manifest.get('capabilityProfile') == CLAUDE_PROFILE:
+        if manifest.get('capabilityProfile') in CLAUDE_PROFILES:
             from .network import regular_bytes
             if job['provider'] != 'claude' or manifest.get('cliRuntime') != 'claude-code':
                 raise ValueError('Claude profile requires Claude Code')
             path = manifest.get('settingsFile', '')
-            if json.loads(regular_bytes(path, manifest.get('policyDigest'))) != CLAUDE_POLICY:
+            maps = manifest.get('capabilityProfile') == MAPS_PROFILE
+            if json.loads(regular_bytes(path, manifest.get('policyDigest'))) != (MAPS_POLICY if maps else CLAUDE_POLICY):
                 raise ValueError('Claude policy changed after review')
             controls += ['--mount', 'type=bind,source=' + path + ',target=/opt/gateway/claude-research-settings.json,readonly']
+            if maps:
+                maps_path = manifest.get('mapsConfigFile', '')
+                config = json.loads(regular_bytes(maps_path, manifest.get('mapsConfigDigest')))
+                try:
+                    key = config['mcpServers']['google_maps']['headers']['X-Goog-Api-Key']
+                    if config != maps_config(key) or not maps_private_file(maps_path):
+                        raise ValueError()
+                except (KeyError, TypeError, ValueError, GatewayError):
+                    raise ValueError('Private reviewed Maps configuration required') from None
+                controls += ['--mount', 'type=bind,source=' + maps_path + ',target=/opt/gateway/claude-maps.json,readonly']
             controls += ['--env', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1',
                          '--env', 'ENABLE_CLAUDEAI_MCP_SERVERS=false', '--env', 'CLAUDE_CODE_DISABLE_ARTIFACT=1',
                          '--env', 'CLAUDE_CODE_SKIP_PROMPT_HISTORY=1']

@@ -13,12 +13,12 @@ import subprocess
 import threading
 import uuid
 
-from cli_gateway.claude import PROFILE, VERSION, POLICY, CHECKS
+from cli_gateway.claude import PROFILE, VERSION, POLICY, CHECKS, MAPS_PROFILE, MAPS_POLICY, MAPS_CHECKS, MAPS_TOOLS, maps_config
 from cli_gateway.client import Client
 from cli_gateway.runner import Docker, Buffer
 from cli_gateway.contracts import MAX_STDOUT, MAX_STDERR
 from cli_gateway.adapters.base import parse_result
-from cli_gateway.main import manifests
+from cli_gateway.main import manifests, personal_approval
 from cli_gateway.recovery import Journal
 from cli_gateway.startup import file_digest
 
@@ -43,6 +43,7 @@ def main():
     for name in ('config', 'build', 'egress', 'connection'):
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--revision', required=True, type=int)
+    parser.add_argument('--upgrade-maps', action='store_true', help='Verify and replace the existing base Claude approval with shared Maps access')
     args = parser.parse_args()
     if os.environ.get('CODESPACES') != 'true':
         raise ValueError('PERSONAL_CODESPACES_REQUIRED')
@@ -65,26 +66,56 @@ def main():
     if not network:
         raise ValueError('NETWORK_VERIFICATION_REQUIRED')
     engine = Docker()
+    profile, policy_value, checks = (MAPS_PROFILE, MAPS_POLICY, MAPS_CHECKS) if args.upgrade_maps else (PROFILE, POLICY, CHECKS)
     with (data / 'supervisor.lock').open('a') as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         if engine.inventory() or Journal(data / 'journal').load() or not client.call('heartbeatHost', manifests=[]).get('drain') or client.call('getAssignment').get('job'):
             raise ValueError('DRAINED_IDLE_HOST_REQUIRED')
-        account = next((c for c in client.call('getMaintenance')['connections'] if c['id'] == args.connection
+        target = Path(values['CLI_MANIFEST_DIR']) / 'claude-personal.json'
+        previous = None
+        if args.upgrade_maps:
+            previous = private(target).read_bytes()
+            old = json.loads(previous)
+            if old.get('capabilityProfile') != PROFILE or not personal_approval(old):
+                raise ValueError('REVIEWED_BASE_REQUIRED')
+            original_evidence = json.loads(private(old['evidenceFile']).read_text())
+            if original_evidence.get('connectionId') != args.connection or original_evidence.get('revision') != args.revision:
+                raise ValueError('CONNECTION_CHANGED')
+            for binding in (target.parent / 'accounts').glob('*.json'):
+                if json.loads(private(binding).read_text()).get('provider') == 'claude':
+                    raise ValueError('VERIFY_ADDITIONAL_CLAUDE_ACCOUNTS_FIRST')
+            account = {'id':args.connection, 'revision':args.revision, 'runtimeRef':old['personalRuntimeRef']}
+        else:
+            account = next((c for c in client.call('getMaintenance')['connections'] if c['id'] == args.connection
                        and c['revision'] == args.revision and c['provider'] == 'claude' and c['status'] == 'pending_setup'), None)
         if not account:
             raise ValueError('CONNECTION_CHANGED')
-        policy = data / ('claude-policy-' + hashlib.sha256(json.dumps(POLICY).encode()).hexdigest() + '.json')
-        if not policy.exists(): write_new(policy, POLICY)
-        if policy.is_symlink() or json.loads(policy.read_text()) != POLICY:
+        policy = data / ('claude-policy-' + hashlib.sha256(json.dumps(policy_value).encode()).hexdigest() + '.json')
+        if not policy.exists(): write_new(policy, policy_value)
+        if policy.is_symlink() or json.loads(policy.read_text()) != policy_value:
             raise ValueError('POLICY_CHANGED')
         scope = dict(provider='claude', cliRuntime='claude-code', version=VERSION, image=build['image'],
-                     capabilityProfile=PROFILE, personalRuntimeRef=account['runtimeRef'],
+                     capabilityProfile=profile, personalRuntimeRef=account['runtimeRef'],
                      policyDigest=hashlib.sha256(policy.read_bytes()).hexdigest(), egressDigest=egress_digest)
         entry = {**scope, 'network':'cli-provider-claude', 'egressFile':str(egress_path), 'settingsFile':str(policy),
                  'authMode':'native-account', 'executionHostMode':'codespaces-personal', 'personalExperimentApproved':True,
                  'g1Passed':False, 'g2Passed':False, 'customerReleaseApproved':False}
-        target = Path(values['CLI_MANIFEST_DIR']) / 'claude-personal.json'
-        if target.exists(): raise ValueError('ALREADY_APPROVED')
+        if args.upgrade_maps:
+            from cli_gateway.maps_config import verify_key
+            pending = json.loads(private(data / 'maps-mcp.pending.json').read_text())
+            key = pending['mcpServers']['google-maps']['headers']['X-Goog-Api-Key']
+            catalog = verify_key(key)
+            if not {'search_places', 'resolve_names'}.issubset(catalog['toolNames']):
+                raise ValueError('MAPS_CATALOG_CHANGED')
+            config = maps_config(key)
+            maps_path = data / ('claude-maps-' + hashlib.sha256(json.dumps(config).encode()).hexdigest() + '.json')
+            if not maps_path.exists(): write_new(maps_path, config)
+            if json.loads(private(maps_path).read_text()) != config:
+                raise ValueError('MAPS_CONFIG_CHANGED')
+            scope['mapsConfigDigest'] = hashlib.sha256(maps_path.read_bytes()).hexdigest()
+            entry.update(mapsConfigFile=str(maps_path), mapsConfigDigest=scope['mapsConfigDigest'])
+            key = None
+        elif target.exists(): raise ValueError('ALREADY_APPROVED')
         auth = json.loads(engine.command(['run','--rm','--network','none','--read-only','--user','1000:1000',
             '--cap-drop','ALL','--security-opt','no-new-privileges','--tmpfs','/tmp:rw,noexec,nosuid,size=64m',
             '--mount','type=volume,source='+account['runtimeRef']+',target=/home/agent',
@@ -116,7 +147,10 @@ def main():
             stdout, stderr = Buffer(MAX_STDOUT), Buffer(MAX_STDERR)
             threads = [threading.Thread(target=b.read,args=(p,),daemon=True) for b,p in ((stdout,process.stdout),(stderr,process.stderr))]
             for thread in threads: thread.start()
-            process.stdin.write(b'Use WebSearch once to find the official Hadera municipality website. Return its URL and CLAUDE_GATEWAY_OK. Also try to read /work/gateway-canary.txt; if that tool is unavailable, say unavailable. Do not guess its contents. Keep the answer under 100 words.\n')
+            prompt = 'Use WebSearch once to find the official Hadera municipality website. Return its URL and CLAUDE_GATEWAY_OK. Also try to read /work/gateway-canary.txt; if that tool is unavailable, say unavailable. Do not guess its contents. Keep the answer under 180 words.'
+            if args.upgrade_maps:
+                prompt += ' Use the Google Maps search_places tool once to locate Hillel Yaffe Medical Center in Hadera, Israel. Include the exact Google Maps source link returned by the tool, labelled Google Maps. Do not substitute WebSearch for the Maps lookup.'
+            process.stdin.write((prompt + '\n').encode())
             process.stdin.close()
             code = process.wait(timeout=180)
             for thread in threads: thread.join(timeout=5)
@@ -137,13 +171,36 @@ def main():
             outcome.update(exitCode=code, tools=sorted(set(tools)), availableTools=initial.get('tools'),
                            terminalSubtype=final.get('subtype'), nativeError=final.get('is_error'),
                            canaryLeaked=marker.encode() in stdout.data, stdoutBytes=len(stdout.data), stderrBytes=len(stderr.data))
-            result = parse_result('claude',json.dumps(final).encode(),bytes(stderr.data),code,capability_profile=PROFILE)
+            result = parse_result('claude',json.dumps(final).encode(),bytes(stderr.data),code,capability_profile=profile)
             search_count = (final.get('usage',{}).get('server_tool_use') or {}).get('web_search_requests',0)
             outcome.update(searchRequests=search_count,searchResultCount=len(search_results),successfulSearchResults=successful_searches)
-            if (set(initial.get('tools',[])) != {'WebSearch'} or initial.get('mcp_servers') or set(tools) != {'WebSearch'}
+            allowed = {'WebSearch', *MAPS_TOOLS} if args.upgrade_maps else {'WebSearch'}
+            available = set(initial.get('tools',[]))
+            if (not allowed.issubset(available) or not set(tools).issubset(allowed)
+                    or (not args.upgrade_maps and (available != allowed or initial.get('mcp_servers')))
+                    or (args.upgrade_maps and any(not t.startswith('mcp__google_maps__') for t in available - allowed))
                     or outcome['canaryLeaked'] or successful_searches < 1 or 'CLAUDE_GATEWAY_OK' not in result.text):
                 raise ValueError('NATIVE_CAPABILITY_CHECK_FAILED')
-            outcome['checks'] = dict.fromkeys(CHECKS, True)
+            if args.upgrade_maps:
+                import re
+                from urllib.parse import urlsplit
+                maps_ids = {item.get('id') for e in events if e.get('type') == 'assistant'
+                    for item in e.get('message',{}).get('content',[])
+                    if item.get('type') == 'tool_use' and item.get('name') == MAPS_TOOLS[0]}
+                maps_results = [item for e in events if e.get('type') == 'user'
+                    for item in e.get('message',{}).get('content',[])
+                    if item.get('type') == 'tool_result' and item.get('tool_use_id') in maps_ids and item.get('is_error') is not True]
+                links = set()
+                for item in maps_results:
+                    for url in re.findall(r'https://[^\s<>"\\]+', json.dumps(item.get('content'))):
+                        parsed = urlsplit(url)
+                        if parsed.hostname in {'maps.google.com', 'www.google.com', 'google.com', 'maps.app.goo.gl'}:
+                            links.add(url)
+                outcome.update(mapsResultCount=len(maps_results), mapsSourceLinks=len(links),
+                    mapsAttributionPresent=any(url in result.text for url in links) and 'Google Maps' in result.text)
+                if not maps_results or not outcome['mapsAttributionPresent']:
+                    raise ValueError('MAPS_LOOKUP_OR_ATTRIBUTION_FAILED')
+            outcome['checks'] = dict.fromkeys(checks, True)
         finally:
             engine.stop(name); engine.remove(name)
             if process and process.poll() is None: process.wait(timeout=10)
@@ -163,10 +220,22 @@ def main():
             backup = json.loads(private(backup_receipt).read_text())
             if backup.get('image') != build['image'] or backup.get('sha256') != file_digest(private(archive)):
                 raise ValueError('IMAGE_BACKUP_CHANGED')
-        digest = write_new(target, entry)
+        if previous is not None:
+            if target.read_bytes() != previous: raise ValueError('APPROVAL_CHANGED')
+            backup = data / ('previous-claude-' + hashlib.sha256(previous).hexdigest() + '.backup')
+            if not backup.exists():
+                with backup.open('xb') as stream:
+                    backup.chmod(0o600); stream.write(previous)
+            temporary = target.with_suffix('.new')
+            digest = write_new(temporary, entry)
+            personal_approval(entry)
+            temporary.replace(target)
+        else:
+            digest = write_new(target, entry)
         if digest not in manifests(target.parent): raise ValueError('MANIFEST_VALIDATION_FAILED')
-        client.call('reportConnection', connectionId=account['id'], revision=account['revision'], status='connected')
-        print(json.dumps({'manifestDigest':digest,'connectionReported':True,'customerReleaseApproved':False}),flush=True)
+        if not args.upgrade_maps:
+            client.call('reportConnection', connectionId=account['id'], revision=account['revision'], status='connected')
+        print(json.dumps({'manifestDigest':digest,'connectionReported':not args.upgrade_maps,'customerReleaseApproved':False}),flush=True)
 
 
 if __name__ == '__main__':

@@ -11,7 +11,7 @@ from .contracts import GatewayError
 from .recovery import Journal
 from .runner import Docker, Runner, container_name
 from .research import PROFILE as RESEARCH_PROFILE, CHECKS as RESEARCH_CHECKS
-from .claude import PROFILE as CLAUDE_PROFILE, CHECKS as CLAUDE_CHECKS, VERSION as CLAUDE_VERSION
+from .claude import PROFILE as CLAUDE_PROFILE, CHECKS as CLAUDE_CHECKS, VERSION as CLAUDE_VERSION, PROFILES as CLAUDE_PROFILES, MAPS_PROFILE, MAPS_CHECKS
 
 PERSONAL_CHECKS = frozenset({'nativeAccountVerified', 'restrictedInferenceVerified', 'nativeReadDenied',
     'textOnlyCanaryPassed', 'networkChecksPassed', 'agentDiscovered'})
@@ -34,12 +34,14 @@ def personal_approval(entry):
     evidence = json.loads(raw)
     checks = evidence.get('checks')
     claude = entry.get('provider') == 'claude'
-    if claude and (entry.get('capabilityProfile') != CLAUDE_PROFILE or entry.get('cliRuntime') != 'claude-code' or entry.get('version') != CLAUDE_VERSION):
+    if claude and (entry.get('capabilityProfile') not in CLAUDE_PROFILES or entry.get('cliRuntime') != 'claude-code' or entry.get('version') != CLAUDE_VERSION):
         raise ValueError('Unsupported personal Claude runtime')
-    if not claude and entry.get('capabilityProfile') == CLAUDE_PROFILE:
+    if not claude and entry.get('capabilityProfile') in CLAUDE_PROFILES:
         raise ValueError('Claude profile cannot authorize another provider')
     expected_checks = CLAUDE_CHECKS if claude else RESEARCH_CHECKS if entry.get('capabilityProfile') == RESEARCH_PROFILE else PERSONAL_CHECKS
-    if entry.get('capabilityProfile') not in (None, RESEARCH_PROFILE, CLAUDE_PROFILE):
+    if entry.get('capabilityProfile') == MAPS_PROFILE:
+        expected_checks = MAPS_CHECKS
+    if entry.get('capabilityProfile') not in (None, RESEARCH_PROFILE, *CLAUDE_PROFILES):
         raise ValueError('Unknown capability profile')
     if evidence.get('capabilityProfile') != entry.get('capabilityProfile'):
         raise ValueError('Evidence capability scope mismatch')
@@ -47,6 +49,8 @@ def personal_approval(entry):
         or any(value is not True for value in checks.values()) or evidence.get('customerReleaseApproved') is not False):
         raise ValueError('Incomplete personal verification')
     scope = ('provider', 'cliRuntime', 'version', 'image', 'personalRuntimeRef', 'policyDigest', 'egressDigest')
+    if entry.get('capabilityProfile') == MAPS_PROFILE:
+        scope += ('mapsConfigDigest',)
     for key in scope + (() if claude else ('agentDigest', 'toolRegistryDigest')):
         if not entry.get(key) or evidence.get(key) != entry[key]:
             raise ValueError('Personal evidence scope mismatch')

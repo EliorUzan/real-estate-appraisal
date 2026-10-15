@@ -9,9 +9,62 @@ from unittest.mock import patch
 from cli_gateway.claude import PROFILE, VERSION, POLICY, CHECKS, arguments
 from cli_gateway.main import personal_approval
 from cli_gateway.runner import Docker
+from cli_gateway.claude import MAPS_PROFILE, MAPS_POLICY, MAPS_CHECKS, MAPS_TOOLS, maps_config
 
 
 class ClaudeTests(unittest.TestCase):
+    def test_maps_profile_preserves_login_and_restricts_tools(self):
+        from cli_gateway.adapters.base import invocation
+        args = invocation('claude', capability_profile=MAPS_PROFILE, model_selection='claude-sonnet-5-5')
+        self.assertEqual(args[-4:], ['--model', 'claude-sonnet-5-5', '--effort', 'medium'])
+        self.assertEqual(args[args.index('--allowedTools')+1].split(','), ['WebSearch', *MAPS_TOOLS])
+        self.assertNotIn('mcp__*', args[args.index('--disallowedTools')+1])
+        self.assertEqual(args[args.index('--mcp-config')+1], '/opt/gateway/claude-maps.json')
+        self.assertIn('--strict-mcp-config', args)
+        self.assertNotIn('--bare', args)
+        self.assertIn('Bash', MAPS_POLICY['permissions']['deny'])
+
+    def test_maps_approval_requires_actual_lookup_evidence_and_bound_config(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'CODESPACES':'true'}):
+            evidence = Path(folder).resolve() / 'evidence.json'
+            scope = dict(provider='claude',cliRuntime='claude-code',version=VERSION,image='sha256:'+'a'*64,
+                personalRuntimeRef='cli-home-account-one',policyDigest='p',egressDigest='e',
+                mapsConfigDigest='m',capabilityProfile=MAPS_PROFILE)
+            entry = {**scope,'evidenceFile':str(evidence),'executionHostMode':'codespaces-personal',
+                'personalExperimentApproved':True,'customerReleaseApproved':False,'g1Passed':False,'g2Passed':False}
+            for checks, passes in [(CHECKS, False),(MAPS_CHECKS, True)]:
+                evidence.write_text(json.dumps({**scope,'checks':dict.fromkeys(checks,True),'customerReleaseApproved':False}))
+                entry['evidenceDigest'] = hashlib.sha256(evidence.read_bytes()).hexdigest()
+                if passes: self.assertTrue(personal_approval(entry))
+                else:
+                    with self.assertRaises(ValueError): personal_approval(entry)
+            with self.assertRaises(ValueError): personal_approval({**entry,'mapsConfigDigest':'other-key'})
+
+    def test_maps_config_exact_endpoint_and_no_key_in_process_arguments(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'CODESPACES':'true'}):
+            root = Path(folder).resolve()
+            policy, config = root / 'policy.json', root / 'maps.json'
+            key = 'AIza' + 'x'*35
+            policy.write_text(json.dumps(MAPS_POLICY))
+            config.write_text(json.dumps(maps_config(key))); config.chmod(0o600)
+            home='cli-home-11111111-1111-4111-8111-111111111111'
+            manifest=dict(provider='claude',cliRuntime='claude-code',capabilityProfile=MAPS_PROFILE,
+                executionHostMode='codespaces-personal',customerReleaseApproved=False,personalRuntimeRef=home,
+                image='sha256:'+'a'*64,network='none',settingsFile=str(policy),policyDigest=hashlib.sha256(policy.read_bytes()).hexdigest(),
+                mapsConfigFile=str(config),mapsConfigDigest=hashlib.sha256(config.read_bytes()).hexdigest())
+            job=dict(jobId='22222222-2222-4222-8222-222222222222',attemptNumber=1,provider='claude',runtimeRef=home)
+            # Windows chmod does not implement Unix group/other bits.
+            with patch.object(Docker,'command') as command, patch('cli_gateway.runner.maps_private_file', return_value=True):
+                Docker().create(job,manifest)
+                args=command.call_args.args[0]
+                self.assertNotIn(key, ' '.join(args))
+                self.assertIn('type=bind,source='+str(config)+',target=/opt/gateway/claude-maps.json,readonly',args)
+                config.write_text('{}')
+                with self.assertRaises(ValueError): Docker().create(job,manifest)
+                bad=maps_config(key); bad['mcpServers']['google_maps']['url']='https://example.com/mcp'
+                config.write_text(json.dumps(bad)); manifest['mapsConfigDigest']=hashlib.sha256(config.read_bytes()).hexdigest()
+                with self.assertRaises(ValueError): Docker().create(job,manifest)
+
     def test_explicit_models_and_effort_reach_invocation(self):
         from cli_gateway.adapters.base import invocation
         from cli_gateway.contracts import GatewayError

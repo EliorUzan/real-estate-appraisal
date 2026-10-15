@@ -69,9 +69,9 @@ def invocation(provider, *, capability_profile=None, model_selection="provider-d
     selected = model_arguments(provider, model_selection)
     # Policy/config is baked into the approved image, never provided by a customer.
     if provider == "claude":
-        from ..claude import PROFILE as CLAUDE_PROFILE, arguments
-        if capability_profile == CLAUDE_PROFILE:
-            return arguments() + selected
+        from ..claude import PROFILES, arguments
+        if capability_profile in PROFILES:
+            return arguments(capability_profile) + selected
         return ["claude", "-p", "--output-format", "json", "--tools", "",
                 "--disallowedTools", "mcp__*", "--strict-mcp-config", "--mcp-config", "{}",
                 "--setting-sources", "", "--settings", "/opt/gateway/claude-settings.json"] + selected
