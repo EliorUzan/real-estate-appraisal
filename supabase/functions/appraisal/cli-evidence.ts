@@ -21,6 +21,15 @@ export function plotEvidence(value:unknown,address:string,now=new Date()){
  return e;
 }
 
+// Domain-authorized browser observations, not a server-authenticated cadastral
+// certificate. Preserve provenance and missing-data warnings in the frozen task.
+export function environmentEvidence(value:unknown,address:string,now=new Date()){
+ const e=plotEvidence(value,address,now);
+ requireThat(e.kind==='govmap_environment'&&e.collectionMethod==='domain_browser_sdk');
+ text(JSON.stringify(e),100000,true);
+ return {...e,provenance:'Browser-collected GovMap data supplied with this request; not independently verified by the server.'};
+}
+
 // Use the existing source validation and selection pipeline with a capture
 // adapter. No provider API call occurs. The exact validated task is frozen.
 export async function prepareCliTransactions(value:unknown,address:string,owner:string,collectorToken:string,now=new Date()){

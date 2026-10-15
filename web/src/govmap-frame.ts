@@ -27,6 +27,7 @@ let collectionVersion=0;
 const rawGovMapResponses:GovMapResponse[]=[];
 let lookupResponseCount=0;
 const publish=(data:PlotAnalysisData|null)=>{if(parent!==window)parent.postMessage({type:"plot-evidence",address,data},location.origin);};
+const publishError=(message:string)=>{if(plotMode&&parent!==window)parent.postMessage({type:"plot-evidence-error",address,message},location.origin);};
 const text=(id:string,value:string)=>{document.getElementById(id)!.textContent=value;};
 addressElement.textContent=address;
 plotSection.hidden=!plotMode;
@@ -72,10 +73,12 @@ plotSelect.addEventListener("change",async()=>{
     publish(data);
   } catch {
     plotWarning.textContent="לא ניתן להשלים את איסוף הנתונים. בחרו שוב את החלקה לניסיון נוסף.";
+    publishError(plotWarning.textContent);
   } finally {if(version===collectionVersion)plotSelect.disabled=false;}
 });
 
 function fail(text: string) {
+  publishError(text);
   status.textContent = text;
   status.setAttribute("role", "alert");
   retry.hidden = false;
@@ -126,6 +129,7 @@ async function initialize() {
     if (point.approximate) {
       parcelElement.textContent = "לא זמין — הכתובת לא אותרה במדויק";
       status.textContent = `נמצאה התאמה חלקית בלבד${point.label ? `: ${point.label}` : ""}. המפה מציגה את האזור המשוער; יש לדייק את הכתובת כדי לקבל גוש וחלקה.`;
+      publishError(status.textContent);
       return;
     }
     addressPoint=point;
@@ -156,6 +160,7 @@ async function initialize() {
             ? "הכתובת חופפת לכמה חלקות. יש לבחור ולאמת את החלקה הנכונה."
             : "אוסף את פרטי החלקה…";
         if (plotParcels.length === 1) { plotSelect.value = "0"; plotSelect.dispatchEvent(new Event("change")); }
+        if (plotParcels.length === 0) publishError(plotWarning.textContent);
       } else {
         parcels = parseParcels(await withTimeout(api.intersectFeatures({
           ...query, fields: ["GUSH_NUM", "PARCEL"],
@@ -168,6 +173,7 @@ async function initialize() {
     } catch {
       parcelElement.textContent = "נתוני גוש וחלקה אינם זמינים כרגע";
       status.textContent = "הכתובת אותרה במפה, אך לא ניתן היה לקבל את נתוני הגוש והחלקה.";
+      publishError(status.textContent);
       retry.hidden = false;
     }
   } catch (error) {

@@ -1,6 +1,6 @@
 import { CliProblem,validateUser,digest,clientIntent,dbProblem,decorateJob,LIMIT } from "./cli-contracts.ts";
 import { generationInput } from "./generation-input.ts";
-import {plotEvidence,prepareCliTransactions,cliTransactionOutput,transactionReport} from './cli-evidence.ts';
+import {plotEvidence,environmentEvidence,prepareCliTransactions,cliTransactionOutput,transactionReport} from './cli-evidence.ts';
 
 // Matches the existing SDK without coupling shared validation to its runtime.
 type DB = {rpc:(name:string,args:Record<string,unknown>)=>PromiseLike<{data:any;error:any}>;from:(name:string)=>any};
@@ -31,6 +31,7 @@ export async function cliAction(db:DB,user:string,b:Record<string,unknown>,size:
         frozen={prompt:(task.context.kind==='over'?task.prompt:snapshot.data?.content??task.prompt)+'\n\n'+(task.context.kind==='over'?'':contract)+' Use only candidate IDs and source facts in the supplied task. No other output.',input:task.input+'\n\nAdditional request (user data):\n'+String(b.additionalRequest)};
       }else{
         if(section==='plot_description')evidence=plotEvidence(b.evidence,String(b.address));
+        if(section==='environment_description'&&b.evidence!==undefined)evidence=environmentEvidence(b.evidence,String(b.address));
         frozen=generationInput(section,snapshot.data?.content,String(b.address),String(b.example),String(b.additionalRequest),evidence?JSON.stringify(evidence):'');
       }
       if(new TextEncoder().encode(frozen.prompt+"\n\n"+frozen.input).length>LIMIT)throw new CliProblem("INPUT_TOO_LARGE");

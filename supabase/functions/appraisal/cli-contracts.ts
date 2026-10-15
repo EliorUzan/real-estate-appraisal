@@ -44,8 +44,8 @@ export function validateUser(body:Record<string,unknown>,size:number){
     requireThat(body.schemaVersion===1);uuid(body.requestId);uuid(body.connectionId);uuid(body.workspaceId);
     requireThat(CLI_SECTIONS.includes(body.sectionId as typeof CLI_SECTIONS[number])&&isCliModel(body.modelSelection),"UNSUPPORTED_CAPABILITY");
     requireThat(body.consent===true);text(body.address,500,true);text(body.example,20000);text(body.additionalRequest,20000);
-    if(body.sectionId==='environment_description')requireThat(body.evidence===undefined,'UNSUPPORTED_CAPABILITY');
-    else requireThat(body.evidence!==null&&typeof body.evidence==='object'&&!Array.isArray(body.evidence));
+    if(body.sectionId!=='environment_description'||body.evidence!==undefined)
+      requireThat(body.evidence!==null&&typeof body.evidence==='object'&&!Array.isArray(body.evidence));
   }
   return action;
 }

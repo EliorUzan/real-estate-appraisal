@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { PlotAnalysisData } from "../lib/plot-description";
 
-export function GovMapPanel({ address, mode = "map", onPlotData }: { address: string; mode?: "map" | "plot"; onPlotData?:(data:PlotAnalysisData|null)=>void }) {
+export function GovMapPanel({ address, mode = "map", onPlotData, onError }: { address: string; mode?: "map" | "plot"; onPlotData?:(data:PlotAnalysisData|null)=>void; onError?:(message:string)=>void }) {
   const frame=useRef<HTMLIFrameElement>(null);
   useEffect(()=>{
     const receive=(event:MessageEvent)=>{
@@ -9,10 +9,11 @@ export function GovMapPanel({ address, mode = "map", onPlotData }: { address: st
       if(event.data?.type==="govmap-size" && event.data.address===address && Number.isFinite(event.data.height))frame.current!.style.height=`${Math.min(8000,Math.max(560,event.data.height))}px`;
       if(mode!=="plot")return;
       if(event.data?.type==="plot-evidence" && event.data.address===address)onPlotData?.(event.data.data);
+      if(event.data?.type==="plot-evidence-error" && event.data.address===address && typeof event.data.message==='string')onError?.(event.data.message);
     };
     window.addEventListener("message",receive);
     return ()=>window.removeEventListener("message",receive);
-  },[address,mode,onPlotData]);
+  },[address,mode,onPlotData,onError]);
   // A separate same-origin document isolates each SDK instance (including history
   // reports) and tears down its message listeners when React removes the frame.
   // The fragment keeps the address out of hosting request logs and referrers.
@@ -23,7 +24,7 @@ export function GovMapPanel({ address, mode = "map", onPlotData }: { address: st
       className={`govmap-frame${mode === "plot" ? " plot-frame" : ""}`}
       title={`${mode === "plot" ? "תיאור החלקה ומפת GovMap" : "מפת GovMap וגוש וחלקה"} — ${address}`}
       src={`/govmap.html#${new URLSearchParams({ address, mode })}`}
-      loading="lazy"
+      loading={mode === 'plot' ? 'eager' : 'lazy'}
       referrerPolicy="strict-origin-when-cross-origin"
     />
   </section>;

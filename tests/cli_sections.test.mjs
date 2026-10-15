@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareCliTransactions,cliTransactionOutput,plotEvidence} from '../supabase/functions/appraisal/cli-evidence.ts';
+import {prepareCliTransactions,cliTransactionOutput,plotEvidence,environmentEvidence} from '../supabase/functions/appraisal/cli-evidence.ts';
+import {environmentGovMap,freshGovMap} from '../web/src/lib/cli-govmap-evidence.ts';
+import {cliAction} from '../supabase/functions/appraisal/cli-actions.ts';
 import {clientIntent,validateUser} from '../supabase/functions/appraisal/cli-contracts.ts';
 import {signCollection} from '../supabase/functions/appraisal/nadlan-browser.ts';
 const now=new Date('2026-10-12T13:00:00Z'),address='כתובת בדיקה';
@@ -47,5 +49,36 @@ test('section evidence participates in CLI identity and unsupported options stay
  assert.equal(validateUser(request,100),'createCliJob');
  assert.notEqual(clientIntent(request),clientIntent({...request,evidence:{parcel:'3'}}));
  assert.throws(()=>validateUser({...request,command:'arbitrary shell'},100));
- assert.throws(()=>validateUser({...request,sectionId:'environment_description'},100));
+ assert.equal(validateUser({...request,sectionId:'environment_description'},100),'createCliJob');
+ assert.throws(()=>environmentEvidence(request.evidence,address,now));
+});
+
+const mapData={address,source:'GovMap PARCEL_ALL',gush:'100',parcel:'2',retrievedAt:now.toISOString(),cadastralArea:123,
+ borders:[],warnings:['No verified neighborhood name'],rawGovMapResponses:[{secret:'not needed'}],
+ spatial:{crs:'EPSG:2039',addressPoint:{x:200000,y:700000},parcelGeometry:'large geometry',geometryDiagnostics:{rawGeometry:'large'},geometryAnalysis:null,
+ layers:[{layer:'BUILDINGS',status:'received',fields:{name:'name'},features:[{attributes:{name:'source building'},geometry:'large'}]}],neighbors:[],topography:null,warnings:[]}};
+test('environment map data preserves observed facts and warnings, excluding transport and geometry copies',()=>{
+ const e=environmentGovMap(mapData);
+ assert.equal(e.spatial.layers[0].features[0].attributes.name,'source building');
+ assert.equal(e.warnings[0],'No verified neighborhood name');
+ assert.ok(!JSON.stringify(e).includes('large'));assert.ok(!JSON.stringify(e).includes('secret'));
+ assert.equal(environmentEvidence(e,address,now).collectionMethod,'domain_browser_sdk');
+ for(const patch of [{address:'wrong'},{retrievedAt:'2020-01-01'},{gush:'0'},{kind:'arbitrary'},{collectionMethod:'server_verified'}])assert.throws(()=>environmentEvidence({...e,...patch},address,now));
+ assert.equal(freshGovMap(mapData,address,now.getTime()),true);
+ assert.equal(freshGovMap(mapData,'wrong',now.getTime()),false);
+ assert.equal(freshGovMap(mapData,address,now.getTime()+26*60000),false);
+});
+
+test('environment evidence reaches the frozen CLI task without replacing the saved agent instructions',async()=>{
+ const id='849698ca-b7d6-4dbd-b48b-406ef8405a6b';
+ const e=environmentGovMap({...mapData,retrievedAt:new Date().toISOString()});
+ const request={action:'createCliJob',schemaVersion:1,requestId:id,connectionId:id,workspaceId:id,sectionId:'environment_description',address,example:'',additionalRequest:'',modelSelection:'provider-default',consent:true,evidence:e};
+ let frozen;
+ const db={rpc:async(name,args)=>{if(name==='cli_lookup_submission')return {data:null,error:null};frozen=args.p_body;return {data:{job:{id,status:'queued'}},error:null};},from:()=>({select(){return this;},eq(){return this;},async maybeSingle(){return {data:{content:'saved personal instructions',version:4},error:null};}})};
+ await cliAction(db,'owner',request,1000);
+ assert.equal(frozen.instructions,'saved personal instructions');
+ assert.ok(frozen.inputText.includes('source building'));
+ assert.ok(frozen.inputText.includes('not independently verified'));
+ assert.equal(frozen.plotEvidence.gush,'100');
+ assert.notEqual(clientIntent(request),clientIntent({...request,evidence:undefined}));
 });
