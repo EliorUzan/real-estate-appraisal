@@ -6,6 +6,7 @@ jobs, change approvals, or retain native output or credentials.
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import threading
@@ -23,6 +24,8 @@ def main():
     import fcntl
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', required=True)
+    parser.add_argument('--show-synthetic-error', action='store_true',
+                        help='Print a bounded redacted error from the fixed public probe only')
     args = parser.parse_args()
     path = Path(args.config)
     if (os.environ.get('CODESPACES') != 'true' or not path.is_absolute()
@@ -65,6 +68,17 @@ def main():
                 process.wait(timeout=10)
             for reader in readers:
                 reader.join(timeout=5)
+            if args.show_synthetic_error and not stdout.exceeded:
+                try:
+                    final = json.loads(bytes(stdout.data))
+                    if isinstance(final, dict) and final.get('is_error') is True:
+                        # This script never accepts user prompts. Inspect only the
+                        # fixed probe's failure; strip URLs, emails and token-like values.
+                        detail = str(final.get('result', ''))
+                        detail = re.sub(r'https?://\S+|[\w.+-]+@[\w.-]+|[A-Za-z0-9_+/=-]{24,}', '[redacted]', detail)
+                        print(json.dumps({'syntheticError': detail[:1200]}), flush=True)
+                except (ValueError, UnicodeError):
+                    pass
             print(json.dumps(dict(event='CLAUDE_HEALTH_PROBE', exitCode=code, timeout=timeout,
                                   stdoutBytes=len(stdout.data), stderrBytes=len(stderr.data),
                                   outputLimit=stdout.exceeded or stderr.exceeded,
