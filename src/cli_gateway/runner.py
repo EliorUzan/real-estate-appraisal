@@ -7,7 +7,7 @@ import subprocess
 import threading
 import time
 from .adapters import invocation, parse_result, prompt_input
-from .adapters.base import stream_diagnostics
+from .adapters.base import stream_diagnostics, claude_diagnostics
 from .contracts import GatewayError, Result, MAX_STDOUT, MAX_STDERR, HEARTBEAT_SECONDS, LEASE_MARGIN_SECONDS, runtime_seconds
 from .network import controls as network_controls
 from .research import PROFILE as RESEARCH_PROFILE, POLICY as RESEARCH_POLICY, AGENT as RESEARCH_AGENT, AGENT_NAME as RESEARCH_AGENT_NAME
@@ -299,7 +299,7 @@ class Runner:
             print(json.dumps({'event': 'CLI_RUN_FAILED', 'jobId': job['jobId'],
                 'errorCode': result.error, 'limit': failure_detail if failure_detail in categories else None,
                 'stdoutBytes': len(stdout.data), 'stderrBytes': len(stderr.data),
-                'protocol': stream_diagnostics(bytes(stdout.data)) if job['provider']=='gemini' else None}), flush=True)
+                'protocol': stream_diagnostics(bytes(stdout.data)) if job['provider']=='gemini' else claude_diagnostics(bytes(stdout.data)) if job['provider']=='claude' else None}), flush=True)
         return self._settle(ids, name, result)
 
     def _settle(self, ids, name, result):

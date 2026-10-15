@@ -13,6 +13,23 @@ from cli_gateway.claude import MAPS_PROFILE, MAPS_POLICY, MAPS_CHECKS, MAPS_TOOL
 
 
 class ClaudeTests(unittest.TestCase):
+    def test_failure_diagnostics_retain_categories_without_native_text(self):
+        from cli_gateway.adapters.base import claude_diagnostics
+        secret = 'private-response-and-token'
+        final = dict(type='result', subtype='error_during_execution', is_error=True,
+                     num_turns=1, errors=['You have hit your limit: '+secret], session_id=secret)
+        diagnostic = claude_diagnostics(json.dumps(final).encode())
+        self.assertEqual(diagnostic, dict(terminalSubtype='error_during_execution', nativeError=True,
+                                         nativeErrorTags=['quota'], turns=1))
+        self.assertNotIn(secret, json.dumps(diagnostic))
+        final.update(subtype=secret, num_turns=secret, errors=[secret])
+        self.assertEqual(claude_diagnostics(json.dumps(final))['terminalSubtype'], 'unknown')
+        self.assertIsNone(claude_diagnostics(json.dumps(final))['turns'])
+        for value in [b'invalid', b'[]', b'null', b'\xff']:
+            self.assertEqual(claude_diagnostics(value)['nativeErrorTags'], [])
+        final.update(subtype='success', is_error=False, result='usage limit', errors=[])
+        self.assertEqual(claude_diagnostics(json.dumps(final))['nativeErrorTags'], [])
+
     def test_maps_profile_preserves_login_and_restricts_tools(self):
         from cli_gateway.adapters.base import invocation
         args = invocation('claude', capability_profile=MAPS_PROFILE, model_selection='claude-sonnet-5-5')

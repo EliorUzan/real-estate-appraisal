@@ -12,7 +12,7 @@ def native_error_tags(value):
     """Diagnostic categories, not authoritative error-code classification."""
     text = json.dumps(value, ensure_ascii=True).lower() if value else ''
     patterns = {
-        'quota': ('quota', 'resource_exhausted', 'resource exhausted'),
+        'quota': ('quota', 'resource_exhausted', 'resource exhausted', 'hit your limit', 'usage limit'),
         'rate_limit': ('rate limit', 'too many requests', '429'),
         'authentication': ('unauthenticated', 'authentication required', 'invalid credential'),
         'permission': ('permission', 'not allowed', 'access denied'),
@@ -26,6 +26,27 @@ def native_error_tags(value):
         'safety': ('safety', 'blocked content', 'prohibited'),
     }
     return [tag for tag, words in patterns.items() if any(word in text for word in words)]
+
+
+def claude_diagnostics(stdout):
+    """Keep fixed native failure categories, never response text or identifiers."""
+    data = {'terminalSubtype': None, 'nativeError': None, 'nativeErrorTags': [], 'turns': None}
+    try:
+        final = json.loads(stdout)
+        if not isinstance(final, dict) or final.get('type') != 'result':
+            return data
+        subtype = final.get('subtype')
+        data['terminalSubtype'] = subtype if subtype in (
+            'success', 'error_during_execution', 'error_max_turns',
+            'error_max_budget_usd', 'error_max_structured_output_retries') else 'unknown'
+        data['nativeError'] = final.get('is_error') if type(final.get('is_error')) is bool else None
+        turns = final.get('num_turns')
+        data['turns'] = turns if type(turns) is int and 0 <= turns <= 10000 else None
+        if data['nativeError'] is True or data['terminalSubtype'].startswith('error_'):
+            data['nativeErrorTags'] = native_error_tags([final.get('result'), final.get('error'), final.get('errors')])
+    except (ValueError, TypeError, UnicodeError):
+        pass
+    return data
 
 
 def stream_diagnostics(stdout):
