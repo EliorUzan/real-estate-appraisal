@@ -17,7 +17,7 @@ from cli_gateway.claude import PROFILE, VERSION, POLICY, CHECKS, MAPS_PROFILE, M
 from cli_gateway.client import Client
 from cli_gateway.runner import Docker, Buffer
 from cli_gateway.contracts import MAX_STDOUT, MAX_STDERR
-from cli_gateway.adapters.base import parse_result
+from cli_gateway.adapters.base import parse_result, native_error_tags
 from cli_gateway.main import manifests, personal_approval
 from cli_gateway.recovery import Journal
 from cli_gateway.startup import file_digest
@@ -170,6 +170,7 @@ def main():
             final = finals[0] if len(finals) == 1 else {}
             outcome.update(exitCode=code, tools=sorted(set(tools)), availableTools=initial.get('tools'),
                            terminalSubtype=final.get('subtype'), nativeError=final.get('is_error'),
+                           nativeErrorTags=native_error_tags(final) if final.get('is_error') else [],
                            canaryLeaked=marker.encode() in stdout.data, stdoutBytes=len(stdout.data), stderrBytes=len(stderr.data))
             result = parse_result('claude',json.dumps(final).encode(),bytes(stderr.data),code,capability_profile=profile)
             search_count = (final.get('usage',{}).get('server_tool_use') or {}).get('web_search_requests',0)
