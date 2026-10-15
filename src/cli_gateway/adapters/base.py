@@ -64,15 +64,17 @@ def stream_diagnostics(stdout):
     return data
 
 
-def invocation(provider, *, capability_profile=None):
+def invocation(provider, *, capability_profile=None, model_selection="provider-default"):
+    from ..claude import model_arguments
+    selected = model_arguments(provider, model_selection)
     # Policy/config is baked into the approved image, never provided by a customer.
     if provider == "claude":
         from ..claude import PROFILE as CLAUDE_PROFILE, arguments
         if capability_profile == CLAUDE_PROFILE:
-            return arguments()
+            return arguments() + selected
         return ["claude", "-p", "--output-format", "json", "--tools", "",
                 "--disallowedTools", "mcp__*", "--strict-mcp-config", "--mcp-config", "{}",
-                "--setting-sources", "", "--settings", "/opt/gateway/claude-settings.json"]
+                "--setting-sources", "", "--settings", "/opt/gateway/claude-settings.json"] + selected
     if provider == "openai":
         return ["codex", "exec", "--json", "--skip-git-repo-check", "--ephemeral",
                 "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only",

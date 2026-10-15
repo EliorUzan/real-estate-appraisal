@@ -20,7 +20,12 @@ begin
    request:=gen_random_uuid();
    b:=jsonb_build_object('requestId',request,'connectionId',conn,'workspaceId',team,'address','Synthetic property','example','Style only','additionalRequest','',
      'requestHash',repeat('a',64),'instructions','Synthetic instructions','inputText','Synthetic input','promptVersion',0,'payloadDigest',repeat('b',64));
+   if i=12 then b:=b||'{"modelSelection":"claude-opus-5-5"}';end if;
+   if i=1 then
+     begin perform public.cli_user_action(owner_id,'createCliJob',b||'{"modelSelection":"claude-haiku-5-5"}');raise exception 'Expected provider mismatch';exception when others then if sqlerrm<>'UNSUPPORTED_CAPABILITY' then raise;end if;end;
+   end if;
    job:=(public.cli_user_action(owner_id,'createCliJob',b)->'job'->>'id')::uuid;
+   if private.cli_job_view(job)->>'modelRequested'<>(case when i=12 then 'claude-opus-5-5' else 'provider-default' end) then raise exception 'Requested model lost';end if;
    update public.generation_jobs set created_at=now()+make_interval(secs=>i) where id=job;
    if i=1 then first_job:=job; end if;
    if (public.cli_user_action(owner_id,'createCliJob',b)->'job'->>'id')::uuid<>job then raise exception 'Duplicate submit'; end if;
@@ -28,6 +33,7 @@ begin
    begin perform public.cli_user_action(other_id,'getCliJob',jsonb_build_object('jobId',job));raise exception 'Expected owner scope';exception when others then if sqlerrm<>'NOT_FOUND' then raise; end if;end;
    if public.cli_worker_action(host,'getAssignment','{}')->'job'<>'null'::jsonb then raise exception 'Recovery claimed new work'; end if;
    claimed:=public.cli_worker_action(host,'claim','{}')->'job';
+   if claimed->>'modelSelection'<>(case when i=12 then 'claude-opus-5-5' else 'provider-default' end) then raise exception 'Claim lost selected model';end if;
    if (claimed->>'jobId')::uuid<>job then raise exception 'Claim failed'; end if;
    if (public.cli_worker_action(host,'claim','{}')->'job'->>'jobId')::uuid<>job then raise exception 'Claim response retry lost assignment'; end if;
    claimed:=jsonb_build_object('jobId',job,'attemptNumber',1,'leaseToken',claimed->>'leaseToken','containerRef','cli-job-'||job::text||'-1');

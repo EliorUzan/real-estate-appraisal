@@ -13,13 +13,15 @@ import {useCliAccount} from '../lib/use-cli-account';
 import {useCliSubmission} from '../lib/use-cli-submission';
 import {CliAccountControls} from './CliAccountControls';
 import {CliSubmissionStatus} from './CliSubmissionStatus';
+import type {CliProvider} from '../lib/cli-agent';
+import type {CliModel} from '../../../supabase/functions/appraisal/cli-models';
 type Account = { defaultProvider: string; settings: { provider_id: string; model_id: string; configured: boolean }[]; nadlanBrowserConfigured?: boolean };
 const message = (e: unknown) => e instanceof Error ? e.message : "הניתוח נכשל.";
 const numeric = (s: string) => s === "" ? null : Number(s);
 const money = (n: number) => new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 }).format(n);
 
-export function ImportedTransactions({ data, onSettings, automatic = false, executionMode="api",userId="",workspaces=[] }: { data: Account; onSettings: () => void; automatic?: boolean;executionMode?:"api"|"cli";userId?:string;workspaces?:string[] }) {
-  const cliMode=executionMode==="cli",cliAccount=useCliAccount(cliMode),cliRun=useCliSubmission(userId,"comparable_sales");
+export function ImportedTransactions({ data, onSettings, automatic = false, executionMode="cli",userId="",workspaces=[],defaultCliProvider='claude',defaultCliModel }: { data: Account; onSettings: () => void; automatic?: boolean;executionMode?:"api"|"cli";userId?:string;workspaces?:string[];defaultCliProvider?:CliProvider;defaultCliModel?:CliModel }) {
+  const cliMode=executionMode==="cli",cliAccount=useCliAccount(cliMode,defaultCliProvider,defaultCliModel),cliRun=useCliSubmission(userId,"comparable_sales");
   const [workspace,setWorkspace]=useState(workspaces[0]??"");
   const modelFor = (id: string) => data.settings.find(s => s.provider_id === id)?.model_id ?? catalog.providers.find(p => p.id === id)!.models[0][1];
   const [sourceUrl, setSourceUrl] = useState(""), [table, setTable] = useState("");
@@ -83,7 +85,7 @@ export function ImportedTransactions({ data, onSettings, automatic = false, exec
       setDataset({ schemaVersion: 1, status: "collected", subject, transactions: parsed.rows, provenance });
       if(cliMode){
         setStage("מעביר את העסקאות שנאספו לסוכן CLI…");
-        await cliRun.submit({schemaVersion:1,requestId:crypto.randomUUID(),connectionId:cliAccount.selected!.connection!.id,workspaceId:workspace,sectionId:"comparable_sales",address:subject.address,example:"",additionalRequest:"",modelSelection:"provider-default",consent:true,
+        await cliRun.submit({schemaVersion:1,requestId:crypto.randomUUID(),connectionId:cliAccount.selected!.connection!.id,workspaceId:workspace,sectionId:"comparable_sales",address:subject.address,example:"",additionalRequest:"",modelSelection:cliAccount.modelSelection,consent:true,
           evidence:{kind:"nadlan",query:{...subject,description:subject.description??"",startDate,endDate,limit:Number(limit)},sourceUrl:source,table:sourceTable,...(automatic&&evidence?{collectionProof:evidence.proof}:{})}});
         return;
       }

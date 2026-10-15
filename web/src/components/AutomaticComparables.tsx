@@ -2,11 +2,14 @@ import {useRef,useState,type FormEvent} from 'react';
 import {useCliAccount} from '../lib/use-cli-account';
 import {useCliSubmission} from '../lib/use-cli-submission';
 import {CliSubmissionStatus} from './CliSubmissionStatus';
+import {CliModelControl} from './CliModelControl';
 import {connectionHelp} from '../lib/cli-status';
 import {OVER_TYPES,overSubject} from '../../../supabase/functions/appraisal/over-transactions';
+import type {CliModel} from '../../../supabase/functions/appraisal/cli-models';
+import type {CliProvider} from '../lib/cli-agent';
 
-export function AutomaticComparables({userId='',workspaces=[],onSettings}:{userId?:string;workspaces?:string[];onSettings:()=>void}){
- const account=useCliAccount(true,'claude'),run=useCliSubmission(userId,'comparable_sales'),guard=useRef(false);
+export function AutomaticComparables({userId='',workspaces=[],onSettings,defaultCliModel,defaultCliProvider}:{userId?:string;workspaces?:string[];onSettings:()=>void;defaultCliModel?:CliModel;defaultCliProvider?:CliProvider}){
+ const account=useCliAccount(true,'claude',defaultCliProvider==='claude'?defaultCliModel:undefined),run=useCliSubmission(userId,'comparable_sales'),guard=useRef(false);
  const [city,setCity]=useState(''),[street,setStreet]=useState(''),[house,setHouse]=useState('');
  const [area,setArea]=useState(''),[rooms,setRooms]=useState(''),[yearBuilt,setYearBuilt]=useState(''),[floor,setFloor]=useState('');
  const [propertyType,setPropertyType]=useState<string>(OVER_TYPES[0]),[description,setDescription]=useState('');
@@ -22,13 +25,13 @@ export function AutomaticComparables({userId='',workspaces=[],onSettings}:{userI
    if(run.identity)throw new Error('קיימת בקשה שמורה. בדקו את תוצאתה ובחרו יצירת בקשה חדשה לפני שליחה נוספת.');
    const query=overSubject({city,street,house,area:Number(area),rooms:Number(rooms),yearBuilt:yearBuilt?Number(yearBuilt):null,floor,propertyType,description,startDate,endDate,radiusMeters:Number(radius)});
    guard.current=true;
-   await run.submit({schemaVersion:1,requestId:crypto.randomUUID(),connectionId:account.selected.connection.id,workspaceId:workspace,sectionId:'comparable_sales',address:query.address,example:'',additionalRequest:'',modelSelection:'provider-default',consent:true,evidence:{kind:'over',query}});
+   await run.submit({schemaVersion:1,requestId:crypto.randomUUID(),connectionId:account.selected.connection.id,workspaceId:workspace,sectionId:'comparable_sales',address:query.address,example:'',additionalRequest:'',modelSelection:account.modelSelection,consent:true,evidence:{kind:'over',query}});
   }catch(e){setError(e instanceof Error?e.message:'הבקשה לא הושלמה.');}finally{guard.current=false;}
  }
  return <section aria-labelledby='automatic-comparables-title'>
   <h2 id='automatic-comparables-title'>עסקאות דומות והערכת טווח שווי</h2>
-  <p>מאתרים עסקאות אוטומטית בארכיון רשות המסים של over.org.il. אין צורך בקישור. עד עשר העסקאות שעברו את סף ההתאמה נשלחות ל־Claude CLI לבדיקה ולהערכת טווח שווי.</p>
-  <p className='muted'>הסינון דורש סוג נכס זהה, מלוא הזכויות, שטח עד 25% הבדל, עד חדר אחד הבדל, התאמה למיקום ולתקופה וציון משוקלל של 70 לפחות. אין הרחבה אוטומטית לתוצאות חלשות.</p>
+  <p>מאתרים עסקאות אוטומטית בארכיון רשות המסים של over.org.il. אין צורך בקישור. עד עשר העסקאות המדורגות ראשונות נשלחות ל־Claude CLI לבדיקה ולהערכת טווח שווי.</p>
+  <p className='muted'>נבחרות עד עשר עסקאות מגורים במיקום ובתקופה המבוקשים, לפי דמיון בשטח, חדרים, סוג נכס, גיל הבניין ומרחק. כשחסרות השוואות קרובות משתמשים גם בעסקאות פחות דומות, עם התאמות שווי מנומקות ואי־ודאות מוגברת. שנת הבנייה אינה מסננת עסקאות.</p>
   <form onSubmit={submit}><fieldset disabled={run.busy} className='request-fields'>
    <div className='two-columns'>
     <label>יישוב<input required maxLength={100} value={city} onChange={e=>setCity(e.target.value)} placeholder='רמת גן'/></label>
@@ -45,7 +48,7 @@ export function AutomaticComparables({userId='',workspaces=[],onSettings}:{userI
    </div>
    <small>ללא תאריכים: שנתיים אחרונות. שטח וחדרים נדרשים לסינון ולהערכת שווי.</small>
    <label>תיאור הנכס ופרטים נוספים<textarea rows={4} maxLength={6000} value={description} onChange={e=>setDescription(e.target.value)} placeholder='מצב, חניה, מעלית, מרפסת ופרטים נוספים לבדיקה'/></label>
-   <p><strong>Claude CLI</strong> · מודל ברירת המחדל של החשבון · בקשת ניתוח אחת לאחר האיסוף והסינון.</p>
+   <p><strong>Claude CLI</strong> · בקשת ניתוח אחת לאחר האיסוף והסינון.</p><CliModelControl account={account}/>
    {account.selected&&<p role='status'>{account.wakeAllowed?'החשבון מחובר והשרת במנוחה. שליחה תפעיל אותו אוטומטית לפני הניתוח.':connectionHelp(account.selected)}</p>}
    <div className='actions'><button type='button' className='secondary' onClick={onSettings}>ניהול חשבון Claude CLI</button><button type='button' className='secondary' disabled={account.loading} onClick={account.refresh}>רענון זמינות</button></div>
    {workspaces.length>1&&<label>צוות<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{workspaces.map(w=><option key={w}>{w}</option>)}</select></label>}

@@ -1,3 +1,4 @@
+import type {CliModel} from '../../../supabase/functions/appraisal/cli-models';
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { TransactionQuery, TransactionResult } from "../../../supabase/functions/appraisal/nearby-transactions";
@@ -14,22 +15,24 @@ import {useCliAccount} from '../lib/use-cli-account';
 import {useCliSubmission} from '../lib/use-cli-submission';
 import {CliAccountControls} from './CliAccountControls';
 import {CliSubmissionStatus} from './CliSubmissionStatus';
-type Execution={executionMode?:'api'|'cli';userId?:string;workspaces?:string[]};
+import {ExecutionModeControl} from './ExecutionModeControl';
+import type {CliProvider} from '../lib/cli-agent';
+type Execution={executionMode?:'api'|'cli';userId?:string;workspaces?:string[];defaultCliProvider?:CliProvider;defaultCliModel?:CliModel};
 type Account = { defaultProvider: string; settings: { provider_id: string; model_id: string; configured: boolean }[]; nadlanConfigured?: boolean; nadlanBrowserConfigured?: boolean };
 const optionalNumber = (s: string) => s === "" ? null : Number(s);
 
 export function NearbyTransactions({ data, onSettings,...execution }: { data: Account; onSettings: () => void }&Execution) {
   const [source, setSource] = useState("over");
-  const [legacyMode,setLegacyMode]=useState<'api'|'cli'>(execution.executionMode??'api');
+  const [legacyMode,setLegacyMode]=useState<'api'|'cli'>(execution.executionMode??'cli');
   return <>
     <label>מקור העסקאות<select value={source} onChange={e => setSource(e.target.value)}><option value="over">עסקאות רשות המסים / over.org.il — אוטומטי</option><option value="nadlan">Nadlan — מסלול קודם</option><option value="import">טבלה שסופקה וקישור Nadlan</option><option value="govmap">חיפוש כתובת ב־GovMap</option></select></label>
-    {source!=='over'&&<label>אופן הפעלה<select value={legacyMode} onChange={e=>setLegacyMode(e.target.value==='cli'?'cli':'api')}><option value='api'>API</option><option value='cli'>CLI · חשבון אישי (ניסוי)</option></select></label>}
+    {source!=='over'&&<ExecutionModeControl value={legacyMode} onChange={value=>setLegacyMode(value==='cli'?'cli':'api')}/>}
     {source === 'over' ? <AutomaticComparables onSettings={onSettings} {...execution}/> : source !== "govmap" ? <ImportedTransactions key={source+legacyMode} automatic={source === "nadlan"} data={data} onSettings={onSettings} {...execution} executionMode={legacyMode}/> : <GovMapNearbyTransactions key={legacyMode} data={data} onSettings={onSettings} {...execution} executionMode={legacyMode}/>}
   </>;
 }
 
-function GovMapNearbyTransactions({ data, onSettings,executionMode="api",userId="",workspaces=[] }: { data: Account; onSettings: () => void }&Execution) {
-  const cliMode=executionMode==="cli",cliAccount=useCliAccount(cliMode),cliRun=useCliSubmission(userId,"comparable_sales");
+function GovMapNearbyTransactions({ data, onSettings,executionMode="cli",userId="",workspaces=[],defaultCliProvider='claude',defaultCliModel }: { data: Account; onSettings: () => void }&Execution) {
+  const cliMode=executionMode==="cli",cliAccount=useCliAccount(cliMode,defaultCliProvider,defaultCliModel),cliRun=useCliSubmission(userId,"comparable_sales");
   const [workspace,setWorkspace]=useState(workspaces[0]??"");
   const modelFor = (id: string) => data.settings.find(s => s.provider_id === id)?.model_id ?? catalog.providers.find(p => p.id === id)!.models[0][1];
   const [provider, setProvider] = useState(data.defaultProvider), [model, setModel] = useState(modelFor(data.defaultProvider));
@@ -40,7 +43,7 @@ function GovMapNearbyTransactions({ data, onSettings,executionMode="api",userId=
   const [result, setResult] = useState<TransactionResult | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const frame = useRef<HTMLIFrameElement>(null);
-  const [collection, setCollection] = useState<{ requestId: string; query: TransactionQuery;connectionId?:string;workspaceId?:string } | null>(null);
+  const [collection, setCollection] = useState<{ requestId: string; query: TransactionQuery;connectionId?:string;workspaceId?:string;modelSelection?:CliModel } | null>(null);
   const submitCli=cliRun.submit;
   const [stage, setStage] = useState("");
   const approvedDomain = location.origin === GOVMAP_APP_ORIGIN;
@@ -59,7 +62,7 @@ function GovMapNearbyTransactions({ data, onSettings,executionMode="api",userId=
         if (typeof event.data.error === "string") throw new Error(event.data.error);
         setStage("העסקאות התקבלו. בודק את הנתונים ומשווה באמצעות המודל שנבחר…");
         if(collection.connectionId&&collection.workspaceId){
-          await submitCli({schemaVersion:1,requestId:crypto.randomUUID(),connectionId:collection.connectionId,workspaceId:collection.workspaceId,sectionId:"comparable_sales",address:collection.query.address,example:"",additionalRequest:"",modelSelection:"provider-default",consent:true,evidence:{kind:"govmap",query:collection.query,evidence:event.data.evidence}});
+          await submitCli({schemaVersion:1,requestId:crypto.randomUUID(),connectionId:collection.connectionId,workspaceId:collection.workspaceId,sectionId:"comparable_sales",address:collection.query.address,example:"",additionalRequest:"",modelSelection:collection.modelSelection??"provider-default",consent:true,evidence:{kind:"govmap",query:collection.query,evidence:event.data.evidence}});
           return;
         }
         const next = await api<TransactionResult>("compareNearbyTransactions", { provider, model, consent, query: collection.query, evidence: event.data.evidence });
@@ -87,7 +90,7 @@ function GovMapNearbyTransactions({ data, onSettings,executionMode="api",userId=
         address, description, rooms: optionalNumber(rooms), area: optionalNumber(area), radiusMeters: optionalNumber(radius), startDate, endDate, dealType, limit: Number(limit),
       } });
       setStage("אוסף עסקאות ישירות מ־GovMap באמצעות הדפדפן…");
-      setCollection({ requestId: crypto.randomUUID(), query,...(cliMode?{connectionId:cliAccount.selected!.connection!.id,workspaceId:workspace}:{}) });
+      setCollection({ requestId: crypto.randomUUID(), query,...(cliMode?{connectionId:cliAccount.selected!.connection!.id,workspaceId:workspace,modelSelection:cliAccount.modelSelection}:{}) });
     } catch (e) { setError(e instanceof Error ? e.message : "אחזור העסקאות נכשל."); inFlight.current = false; setBusy(false); }
   }
 

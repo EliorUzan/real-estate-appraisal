@@ -12,6 +12,18 @@ from cli_gateway.runner import Docker
 
 
 class ClaudeTests(unittest.TestCase):
+    def test_explicit_models_and_effort_reach_invocation(self):
+        from cli_gateway.adapters.base import invocation
+        from cli_gateway.contracts import GatewayError
+        for name, effort in [('claude-opus-5-5', 'high'), ('claude-sonnet-5-5', 'medium'), ('claude-haiku-5-5', 'low')]:
+            args = invocation('claude', capability_profile=PROFILE, model_selection=name)
+            self.assertEqual(args[-4:], ['--model', name, '--effort', effort])
+            self.assertIn('dontAsk', args)
+            with self.assertRaises(GatewayError): invocation('gemini', model_selection=name)
+        self.assertNotIn('--model', invocation('claude', capability_profile=PROFILE))
+        for value in ['--model bad', None, {}, 'opus', 'claude-opus-5-5;echo bad']:
+            with self.assertRaises(GatewayError): invocation('claude', model_selection=value)
+
     def test_native_account_is_kept_and_tools_are_explicit(self):
         args = arguments()
         self.assertNotIn('--bare', args)  # Bare disables subscription OAuth.

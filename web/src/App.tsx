@@ -16,6 +16,10 @@ import {onboarding,LOGIN_TERMINAL} from "./lib/cli-onboarding";
 import {MapsDemoSettings} from './components/MapsDemoSettings';
 import { Icon, Models } from "./components/ProviderControls";
 import { NearbyTransactions } from "./components/NearbyTransactions";
+import { CollapsibleTextarea } from "./components/CollapsibleTextarea";
+import { ExecutionModeControl } from "./components/ExecutionModeControl";
+import { ExecutionDefaultsSettings } from "./components/ExecutionDefaultsSettings";
+import {readExecutionDefaults,type ExecutionDefaults,type ExecutionPage} from './lib/execution-defaults';
 import type { PlotAnalysisData } from "./lib/plot-description";
 
 type Setting = { provider_id:string; model_id:string; configured:boolean; key_last4:string|null };
@@ -76,7 +80,9 @@ function PromptEditor({section,prompt,onSaved}:{section:string;prompt?:Prompt;on
     {status&&<p className="success" role="status">{status}</p>}{error&&<p className="error" role="alert">{error}</p>}
   </div>;
 }
-function Settings({data,setData}:{data:Bootstrap;setData:(d:Bootstrap)=>void}){
+function Settings({data,setData,defaults}:{data:Bootstrap;setData:(d:Bootstrap)=>void;defaults:ExecutionDefaults}){
+  const [page,setPage]=useState('defaults');
+  const providerModels=Object.fromEntries(catalog.providers.map(p=>[p.id,data.settings.find(s=>s.provider_id===p.id)?.model_id??p.models[0][1]]));
   const [section,setSection]=useState("environment_description"),[error,setError]=useState("");
   const [importing,setImporting]=useState(false),[importStatus,setImportStatus]=useState("");
   async function importDesktop(){setImporting(true);setError("");try{
@@ -86,16 +92,21 @@ function Settings({data,setData}:{data:Bootstrap;setData:(d:Bootstrap)=>void}){
     setData(await api<Bootstrap>("bootstrap"));
     setImportStatus("יובאו: "+(result.imported.join(", ")||"לא נמצאו מפתחות")+(result.failed.length?". לא יובאו: "+result.failed.join(", "):""));
   }catch(e){setError(message(e));}finally{setImporting(false);}}
-  return <><h1>הגדרות</h1><CliConnections/><MapsDemoSettings/><h2>ספקי API</h2><p>מפתחות API מוצפנים ב-Supabase Vault. המפתח המלא אינו נשלח בחזרה לדפדפן.</p>
+  return <><h1>הגדרות</h1><nav className="settings-navigation" aria-label="עמודי הגדרות">{[['defaults','ברירות מחדל'],['api','ספקי API'],['cli','חשבונות CLI'],['prompts','הוראות לסוכנים'],['account','החשבון והצוות']].map(([id,label])=><button type="button" key={id} aria-current={page===id?'page':undefined} className={page===id?'nav-active':''} onClick={()=>setPage(id)}>{label}</button>)}</nav>
+    <section hidden={page!=='defaults'} aria-label="ברירות מחדל"><ExecutionDefaultsSettings defaults={defaults} providerModels={providerModels}/></section>
+    <section hidden={page!=='cli'} aria-label="חשבונות CLI"><CliConnections/></section>
+    <section hidden={page!=='api'} aria-label="ספקי API"><h2>ספקי API</h2><p>מפתחות API מוצפנים ב-Supabase Vault. המפתח המלא אינו נשלח בחזרה לדפדפן.</p>
     {import.meta.env.DEV&&<div className="actions"><button onClick={importDesktop} disabled={importing}>{importing?"מייבא…":"ייבוא מפתחות מהיישום השולחני"}</button></div>}
     {importStatus&&<p role="status" className="success">{importStatus}</p>}
     <label>ספק ברירת מחדל<select value={data.defaultProvider} onChange={async e=>{const provider=e.target.value;try{await api("defaultProvider",{provider});setData({...data,defaultProvider:provider});setError("");}catch(e){setError(message(e));}}}>{catalog.providers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
     {error&&<p role="alert" className="error">{error}</p>}
     <div className="providers">{catalog.providers.map(p=><ProviderCard key={p.id} provider={p} setting={data.settings.find(s=>s.provider_id===p.id)} onSaved={s=>setData({...data,settings:[...data.settings.filter(x=>x.provider_id!==s.provider_id),s]})}/>)}</div>
-    <AccountSettings data={data}/><details className="advanced"><summary>הגדרות מתקדמות · Advanced settings</summary><h2>קובצי סוכנים אישיים</h2><p>ההוראות פרטיות לחשבון שלך. בחרו פרק כדי לערוך את קובץ הסוכן המלא. הגרסה השמורה תשמש בבקשה הבאה במקום ברירת המחדל.</p>
+    <MapsDemoSettings/></section>
+    <section hidden={page!=='account'} aria-label="החשבון והצוות"><AccountSettings data={data}/></section>
+    <section hidden={page!=='prompts'} aria-label="הוראות לסוכנים"><h2>קובצי סוכנים אישיים</h2><p>ההוראות פרטיות לחשבון שלך. בחרו פרק כדי לערוך את קובץ הסוכן המלא. הגרסה השמורה תשמש בבקשה הבאה במקום ברירת המחדל.</p>
       <label>פרק הדוח<select value={section} onChange={e=>setSection(e.target.value)}>{catalog.sections.map(s=><option disabled={!s.available&&s.id!=="comparable_sales"} key={s.id} value={s.id}>{s.label}{s.available||s.id==="comparable_sales"?"":" — בהכנה"}</option>)}</select></label>
       <PromptEditor key={section} section={section} prompt={data.prompts.find(p=>p.section_id===section)} onSaved={p=>setData({...data,prompts:[...data.prompts.filter(x=>x.section_id!==p.section_id),p]})}/>
-    </details></>;
+    </section></>;
 }
 async function encodeFile(file:File,role:string){
   if(file.size>10*1024*1024)throw new Error("גודל הקבצים המרבי הוא 10 MB");
@@ -104,15 +115,20 @@ async function encodeFile(file:File,role:string){
   const bytes=new Uint8Array(await file.arrayBuffer());let binary="";for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
   return {name:file.name,type,data:btoa(binary),role};
 }
-function NewRequest({data,onSettings,userId,active}:{data:Bootstrap;onSettings:()=>void;userId:string;active:boolean}){
-  const [section,setSection]=useState(()=>{try{const s=sessionStorage.getItem("request-section:"+userId);return ["environment_description","plot_description","nearby_transactions"].includes(s??"")?s!:"environment_description";}catch{return "environment_description";}});
-  const [mode,setMode]=useState(()=>{try{return sessionStorage.getItem("request-mode:"+userId)==="cli"||["","plot_description","comparable_sales"].some(s=>sessionStorage.getItem("cli-pending:"+userId+(s?":"+s:"")))?"cli":"api";}catch{return "api";}});
+function NewRequest({data,onSettings,userId,active,defaults}:{data:Bootstrap;onSettings:()=>void;userId:string;active:boolean;defaults:ExecutionDefaults}){
+  const [section,setSection]=useState<ExecutionPage>(()=>{try{const s=sessionStorage.getItem("request-section:"+userId);return ["environment_description","plot_description","nearby_transactions"].includes(s??"")?s as ExecutionPage:"environment_description";}catch{return "environment_description";}});
+  const pageDefaults=defaults[section];
+  const defaultsKey=JSON.stringify(pageDefaults);
+  const [modeChoice,setModeChoice]=useState<{page:ExecutionPage;defaultsKey:string;mode:'api'|'cli'}|null>(null);
+  const mode=modeChoice?.page===section&&modeChoice.defaultsKey===defaultsKey?modeChoice.mode:pageDefaults.mode;
+  const providerSetting=data.settings.find(s=>s.provider_id===pageDefaults.apiProvider);
+  const pageData={...data,defaultProvider:pageDefaults.apiProvider,settings:[...data.settings.filter(s=>s.provider_id!==pageDefaults.apiProvider),{...(providerSetting??{provider_id:pageDefaults.apiProvider,configured:false,key_last4:null}),model_id:pageDefaults.apiModel}]};
   return <><div className="title-row"><h1>בקשה חדשה</h1></div>
-    <label>סוג הבקשה<select value={section} onChange={e=>{setSection(e.target.value);try{sessionStorage.setItem("request-section:"+userId,e.target.value);}catch{/* Keep current selection. */}}}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}<option value="nearby_transactions">משוך עסקאות מהסביבה</option></select></label>
-    {section!=="nearby_transactions"&&<label>אופן הפעלה<select value={mode} onChange={e=>{setMode(e.target.value);try{sessionStorage.setItem("request-mode:"+userId,e.target.value);}catch{/* Keep current selection. */}}}><option value="api">API</option><option value="cli">CLI · חשבון אישי (ניסוי)</option></select></label>}
-    {section==="nearby_transactions"?<NearbyTransactions key={mode} data={data} onSettings={onSettings} executionMode={mode==="cli"?"cli":"api"} userId={userId} workspaces={data.members.map(m=>m.workspace_id)}/>
-      :mode==="cli"?<CliRequest key={section} sectionId={section==="plot_description"?"plot_description":"environment_description"} userId={userId} workspaces={data.members.map(m=>m.workspace_id)} onSettings={onSettings} active={active}/>
-      :<SectionRequest key={section} section={section} data={data} onSettings={onSettings}/>}
+    <label>סוג הבקשה<select value={section} onChange={e=>{const next=e.target.value as ExecutionPage;setSection(next);setModeChoice(null);try{sessionStorage.setItem("request-section:"+userId,next);}catch{/* Keep current selection. */}}}>{catalog.sections.map(s=><option disabled={!s.available} value={s.id} key={s.id}>{s.label}{s.available?"":" — בהכנה"}</option>)}<option value="nearby_transactions">משוך עסקאות מהסביבה</option></select></label>
+    {section!=="nearby_transactions"&&<ExecutionModeControl value={mode} onChange={value=>setModeChoice({page:section,defaultsKey,mode:value==='api'?'api':'cli'})}/>}
+    {section==="nearby_transactions"?<NearbyTransactions key={defaultsKey} data={pageData} onSettings={onSettings} executionMode={mode} defaultCliProvider={pageDefaults.cliProvider} defaultCliModel={pageDefaults.cliModel} userId={userId} workspaces={data.members.map(m=>m.workspace_id)}/>
+      :mode==="cli"?<CliRequest key={section+pageDefaults.cliProvider+pageDefaults.cliModel} sectionId={section==="plot_description"?"plot_description":"environment_description"} userId={userId} workspaces={data.members.map(m=>m.workspace_id)} onSettings={onSettings} active={active} defaultCliProvider={pageDefaults.cliProvider} defaultCliModel={pageDefaults.cliModel}/>
+      :<SectionRequest key={section+pageDefaults.apiProvider+pageDefaults.apiModel} section={section} data={pageData} onSettings={onSettings}/>}
   </>;
 }
 function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap;onSettings:()=>void}){
@@ -151,23 +167,23 @@ function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap
   return <>
     {isPlot&&<><p className="muted">מאתרים את החלקה, בודקים את נתוני המיפוי ולאחר מכן יוצרים את התיאור.</p><form onSubmit={lookup} noValidate><fieldset disabled={busy} className="request-fields">{addressInput}<button>אחזור נתוני חלקה מ־GovMap</button></fieldset></form>
     {mapAddress&&<div inert={busy}><GovMapPanel key={lookupVersion} address={mapAddress} mode="plot" onPlotData={setPlotData}/></div>}</>}
-    {(!isPlot||mapAddress)&&<form onSubmit={generate} noValidate className={isPlot?"plot-generation":""}>
+    <form onSubmit={generate} noValidate className={isPlot?"plot-generation":""}>
     {isPlot&&<h2>יצירת תיאור החלקה</h2>}
     <fieldset disabled={busy} className="request-fields">
       {!isPlot&&addressInput}
       {data.members.length>1&&<label>סביבת עבודה<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{data.members.map(m=><option key={m.workspace_id}>{m.workspace_id}</option>)}</select></label>}
       <div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e=>{const id=e.target.value;setProvider(id);setModel(data.settings.find(s=>s.provider_id===id)?.model_id??catalog.providers.find(p=>p.id===id)!.models[0][1]);}}>{catalog.providers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div>
       {!configured&&<p className="error">יש להגדיר מפתח API לספק זה. <button type="button" className="text-button" onClick={onSettings}>פתיחת הגדרות</button></p>}
-      {!isPlot&&<><label>דוגמה לסגנון הרצוי<textarea rows={5} value={example} onChange={e=>setExample(e.target.value)} maxLength={20000}/></label><label>קובצי דוגמה<input type="file" multiple accept={pdfAvailable?".pdf,.txt,.md,.csv":".txt,.md,.csv"} onChange={e=>setExampleFiles(Array.from(e.target.files??[]))}/></label></>}
-      <label>{isPlot?"בקשות נוספות לתיאור החלקה":"בקשה נוספת"}<textarea rows={3} value={additional} onChange={e=>setAdditional(e.target.value)} maxLength={20000}/></label>
+      {!isPlot&&<><CollapsibleTextarea label="דוגמה לסגנון הרצוי" rows={5} value={example} onChange={setExample}/><label>קובצי דוגמה<input type="file" multiple accept={pdfAvailable?".pdf,.txt,.md,.csv":".txt,.md,.csv"} onChange={e=>setExampleFiles(Array.from(e.target.files??[]))}/></label></>}
+      <CollapsibleTextarea label={isPlot?"בקשות נוספות לתיאור החלקה":"בקשה נוספת"} rows={3} value={additional} onChange={setAdditional}/>
       <label>קבצים נוספים<input type="file" multiple accept={pdfAvailable?".pdf,.txt,.md,.csv":".txt,.md,.csv"} onChange={e=>setAdditionalFiles(Array.from(e.target.files??[]))}/></label>
       <small>עד 5 קבצים, 10 MB בסך הכול. PDF נתמך ב־ChatGPT, Gemini ו־Claude.</small>
       {!isPlot&&<label className="checkbox"><input type="checkbox" checked={search&&searchAvailable} disabled={!searchAvailable} onChange={e=>setSearch(e.target.checked)}/>חיפוש מידע עדכני באינטרנט</label>}
       <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את התוכן והקבצים לספק שנבחר ולשמור את הטיוטה בהיסטוריית הצוות.</label>
       {isPlot&&!plotData&&<p role="status">יצירת התיאור תהיה זמינה לאחר השלמת איתור החלקה ואיסוף הנתונים.</p>}
-      <div className="actions"><button disabled={busy}>{busy?"יוצר טיוטה…":isPlot?"צור תיאור חלקה באמצעות AI":"צור"}</button>
+      <div className="actions"><button disabled={busy||(isPlot&&!plotData)}>{busy?"יוצר טיוטה…":isPlot?"צור תיאור חלקה באמצעות AI":"צור"}</button>
       {!isPlot&&<button type="button" className="secondary" onClick={()=>{if(!address.trim())setError("יש להזין כתובת נכס כדי להציג מפה.");else setMapAddress(address.trim());}}>הצג מפה לכתובת</button>}</div>
-    </fieldset></form>}
+    </fieldset></form>
     {busy&&<p role="status">הבקשה נשלחה לעיבוד.</p>}{error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status" className="success">{notice}</p>}
     {output&&<Report text={output}/>}
     {!isPlot&&mapAddress&&<GovMapPanel address={mapAddress}/>}
@@ -180,6 +196,8 @@ function Report({text}:{text:string}){
 function Workspace({session}:{session:Session}){
   const [view,setView]=useState<"new"|"history"|"settings">("new"),[data,setData]=useState<Bootstrap|null>(null),[error,setError]=useState("");
   const cli=useCliConnectionController();
+  const defaults=readExecutionDefaults(session.user.user_metadata.execution_defaults,data?.defaultProvider??'openai',catalog.providers.map(p=>p.id),Object.fromEntries(catalog.providers.map(p=>[p.id,data?.settings.find(s=>s.provider_id===p.id)?.model_id??p.models[0][1]])));
+  const username=String(session.user.user_metadata.username||session.user.user_metadata.full_name||session.user.email||'משתמש מחובר');
   async function logout(){
     for(const section of ["","plot_description","comparable_sales"])sessionStorage.removeItem("cli-pending:"+session.user.id+(section?":"+section:""));
     // Best effort while the app JWT still exists. Server deadlines remain the
@@ -190,8 +208,8 @@ function Workspace({session}:{session:Session}){
     await supabase.auth.signOut();
   }
   useEffect(()=>{let active=true;api<Bootstrap>("bootstrap").then(d=>{if(active)setData(d);}).catch(e=>{if(active)setError(message(e));});return()=>{active=false;};},[]);
-  return <div dir="rtl"><header><span className="brand">עוזר להערכת מקרקעין</span><nav aria-label="ניווט ראשי"><button className={view==="new"?"nav-active":""} onClick={()=>setView("new")}>בקשה חדשה</button><button className={view==="history"?"nav-active":""} onClick={()=>setView("history")}>היסטוריה</button></nav><span className="account"><bdi>{session.user.email}</bdi><button className="quiet-button" onClick={()=>void logout()}>יציאה</button></span><button className={"gear "+(view==="settings"?"nav-active":"")} aria-label="הגדרות" title="הגדרות" onClick={()=>setView("settings")}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.325 4.317a1.125 1.125 0 0 1 1.088-.817h1.174c.53 0 .996.35 1.088.857l.196 1.084c.056.311.252.57.537.719.257.135.5.293.724.47.254.2.598.238.888.103l1.009-.47a1.125 1.125 0 0 1 1.487.49l.587 1.016c.274.474.11 1.08-.365 1.354l-.918.53a1.125 1.125 0 0 0-.562.974v.746c0 .402.215.774.562.974l.918.53c.475.274.639.88.365 1.354l-.587 1.016a1.125 1.125 0 0 1-1.487.49l-1.009-.47a1.125 1.125 0 0 0-.888.103c-.224.177-.467.335-.724.47a1.125 1.125 0 0 0-.537.719l-.196 1.084a1.125 1.125 0 0 1-1.088.857h-1.174a1.125 1.125 0 0 1-1.088-.817l-.196-1.084a1.125 1.125 0 0 0-.537-.719 5.23 5.23 0 0 1-.724-.47 1.125 1.125 0 0 0-.888-.103l-1.009.47a1.125 1.125 0 0 1-1.487-.49l-.587-1.016a1.125 1.125 0 0 1 .365-1.354l.918-.53a1.125 1.125 0 0 0 .562-.974v-.746c0-.402-.215-.774-.562-.974l-.918-.53a1.125 1.125 0 0 1-.365-1.354l.587-1.016a1.125 1.125 0 0 1 1.487-.49l1.009.47a1.125 1.125 0 0 0 .888-.103c.224-.177.467-.335.724-.47.285-.15.481-.408.537-.719l.196-1.084Z"/><circle cx="12" cy="12" r="3"/></svg></button></header>
-    <main className="workspace"><section className="content-card">{error?<><p className="error" role="alert">{error}</p><button onClick={()=>location.reload()}>ניסיון נוסף</button></>:!data?<p role="status">טוען את החשבון…</p>:<><div hidden={view!=="new"}><NewRequest key={session.user.id} data={data} userId={session.user.id} onSettings={()=>setView("settings")} active={view==="new"}/></div>{view==="settings"&&<Settings data={data} setData={setData}/>} {view==="history"&&<History renderReport={text=><Report text={text}/>}/>}</>}</section></main>
+  return <div dir="rtl"><header><span className="brand">עוזר להערכת מקרקעין</span><nav aria-label="ניווט ראשי"><button className={view==="new"?"nav-active":""} onClick={()=>setView("new")}>בקשה חדשה</button><button className={view==="history"?"nav-active":""} onClick={()=>setView("history")}>היסטוריה</button></nav><span className="account"><bdi title={username}>{username}</bdi><button className="quiet-button" onClick={()=>void logout()}>יציאה</button></span><button className={"gear "+(view==="settings"?"nav-active":"")} aria-label="הגדרות" title="הגדרות" onClick={()=>setView("settings")}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.325 4.317a1.125 1.125 0 0 1 1.088-.817h1.174c.53 0 .996.35 1.088.857l.196 1.084c.056.311.252.57.537.719.257.135.5.293.724.47.254.2.598.238.888.103l1.009-.47a1.125 1.125 0 0 1 1.487.49l.587 1.016c.274.474.11 1.08-.365 1.354l-.918.53a1.125 1.125 0 0 0-.562.974v.746c0 .402.215.774.562.974l.918.53c.475.274.639.88.365 1.354l-.587 1.016a1.125 1.125 0 0 1-1.487.49l-1.009-.47a1.125 1.125 0 0 0-.888.103c-.224.177-.467.335-.724.47a1.125 1.125 0 0 0-.537.719l-.196 1.084a1.125 1.125 0 0 1-1.088.857h-1.174a1.125 1.125 0 0 1-1.088-.817l-.196-1.084a1.125 1.125 0 0 0-.537-.719 5.23 5.23 0 0 1-.724-.47 1.125 1.125 0 0 0-.888-.103l-1.009.47a1.125 1.125 0 0 1-1.487-.49l-.587-1.016a1.125 1.125 0 0 1 .365-1.354l.918-.53a1.125 1.125 0 0 0 .562-.974v-.746c0-.402-.215-.774-.562-.974l-.918-.53a1.125 1.125 0 0 1-.365-1.354l.587-1.016a1.125 1.125 0 0 1 1.487-.49l1.009.47a1.125 1.125 0 0 0 .888-.103c.224-.177.467-.335.724-.47.285-.15.481-.408.537-.719l.196-1.084Z"/><circle cx="12" cy="12" r="3"/></svg></button></header>
+    <main className="workspace"><section className="content-card">{error?<><p className="error" role="alert">{error}</p><button onClick={()=>location.reload()}>ניסיון נוסף</button></>:!data?<p role="status">טוען את החשבון…</p>:<><div hidden={view!=="new"}><NewRequest key={session.user.id} data={data} userId={session.user.id} onSettings={()=>setView("settings")} active={view==="new"} defaults={defaults}/></div>{view==="settings"&&<Settings data={data} setData={setData} defaults={defaults}/>} {view==="history"&&<History renderReport={text=><Report text={text}/>}/>}</>}</section></main>
   </div>;
 }
 export function App(){

@@ -27,6 +27,7 @@ try{
  await db.exec(await read('supabase/migrations/20261012135720_cli_report_sections.sql'));console.log('CLI section migration valid');
  await db.exec(await read('supabase/migrations/20261012170138_cli_research_runtime.sql'));console.log('CLI research runtime migration valid');
  await db.exec(await read('supabase/migrations/20261014085820_cli_claude_provider_wake.sql'));console.log('CLI Claude provider wake migration valid');
+ await db.exec(await read('supabase/migrations/20261014122730_cli_model_selection.sql'));console.log('CLI model selection migration valid');
  for(const path of ['tests/cli_gateway_db.sql','tests/cli_login_db.sql','tests/cli_maps_wake_db.sql','tests/cli_sections_db.sql']){await db.exec(await read(path));console.log(`Postgres protocol passed: ${path}`);}
  console.log('Isolated Postgres tests passed. PGlite is single-session; external two-session races remain a separate release check.');
 }catch(e){console.error('Postgres test failed:',e.message,e.detail??'',e.where??'');if(e.position&&e.query){const at=Number(e.position)-1;console.error('Position',at,'line',e.query.slice(0,at).split('\n').length,e.query.slice(Math.max(0,at-120),at+100));}process.exitCode=1;}finally{await db.close();}

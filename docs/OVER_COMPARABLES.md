@@ -4,18 +4,18 @@ The reference app at https://nadlan-il-one.vercel.app/methodology identifies ove
 
 The new default transaction form resolves city/street/house to a parcel, obtains nearby parcel locations, and queries the public `/api/deals/search` REST endpoint. No source link, GovMap domain token, MCP, SQL credential or AI search is required. Source availability and coverage remain external dependencies.
 
-Selection requires the same property type and city, whole ownership, a known parcel location within the radius, dates in the requested window, area within 25%, rooms within one, and a mechanical score of at least 70. Conflicting duplicates, known construction-age mismatches and extreme price outliers are excluded. Scoring uses area, rooms, distance, recency and construction year when supplied. Missing information is disclosed. Same parcel does not establish the same building.
+Current selection (version 2) requires residential transactions in the requested city, radius and sale-date window, whole ownership, usable price/area/rooms, and unambiguous parcel location. Invalid/conflicting duplicates remain excluded. Area, rooms, residential subtype, recency, distance and construction year determine ranking; there is no minimum score, construction-year cutoff, size cutoff or room-count cutoff. Unusual prices are retained for contextual analysis.
 
-Collection is bounded to 200 nearby parcels, six blocks and 400 sales per block; reaching limits produces a partial-coverage warning. The best ten qualifying records in that collected sample are frozen. Fewer than ten are never padded with weak matches; fewer than three stop before Claude.
+Collection is bounded to 200 nearby parcels, six blocks and 400 sales per block. Limits produce partial-coverage warnings: ten best in the collected sample are not a guarantee of the ten best in the entire market. Up to ten ranked records are frozen. Newer buildings remain available for valuing older buildings. Zero records stops before Claude; one or two can support a tentative, explicitly limited estimate.
 
-One Claude CLI request reviews each frozen candidate, may reject additional records, and returns an indicative value range with reasoning and assumptions. Source prices, dates, areas and locations cannot be replaced by model output. Range validation requires at least three accepted record IDs. This is not a calibrated confidence interval; no accuracy claims from the reference site apply to this implementation. Floor/condition/subsidies may be unavailable and historic prices are not automatically indexed.
+One Claude CLI request reviews every candidate. All selected transactions remain in the table, including those used only for context. Usable candidates receive a total signed percentage adjustment range with evidence and assumptions. These are not verified annual depreciation rates. Source price/area stay immutable; the backend computes each subject-value scenario as amount / area * subjectArea * (1 + percentage / 100). The displayed range is the outward-rounded envelope of cited scenarios, and the model's central estimate is constrained to that envelope. Weak evidence widens uncertainty. If numerical adjustments cannot be justified, Claude can decline valuation while preserving the table. Historical version-1 jobs retain their original output validation.
 
 The existing authenticated CLI queue, owner checks, consent, submission identity and history are reused. Backend appraisal v25 deployed with JWT verification enabled. Frontend deployment and end-to-end results are recorded below.
 
 ## Task Claude budget (maximum two requests)
 
 - Request 1: completed successfully through the browser, public sample address בר יוחאי 8, רמת גן; hypothetical 80 m² / 3 rooms. No claim that the user owns this property. Job `5ecde363-877e-49b6-a00e-8ae7c89b3a5f`, one launch attempt, settled successfully. Worker woke automatically. Ten records reviewed, nine accepted, one rejected; returned 2.30–2.78 million ILS with 2.48 million central estimate. This is a workflow test, not a validated appraisal. The provider did not return a resolved model identifier; UI correctly labels its default model.
-- Request 2: unused; only for necessary repair validation.
+- Request 2: submitted for version-2 construction-age adjustment validation. Request `c87f313b-84c0-403f-90c9-89298ea36fbe`, job `a7ce7fa4-c778-4518-bbfc-91a1d0e93a84`. Two-request task budget is now fully allocated. Do not launch another Claude request.
 
 ## Validation
 
@@ -23,3 +23,19 @@ The existing authenticated CLI queue, owner checks, consent, submission identity
 - Focused parser/selection/CLI tests (including real pagination boundaries), TypeScript, production build, ESLint and patch whitespace checks passed after the final UI edits. Vite reports its existing large-main-chunk advisory.
 - Frontend deployment: `dpl_7pdgnNqruZfesRXLJiK7TKFfRhXg`, production target, READY and aliased to `real-estate-appraisal-sage.vercel.app`, from tested workspace source files (not a Git push). Initial upload omitted two existing CLI onboarding shared modules and failed without replacing production; the corrected package built successfully.
 - Integrated-browser verification on the live domain: automatic form loaded with no URL input; history reopened the same successful job and rendered all nine accepted comparables and its valuation range. No second Claude invocation. Screenshot: `artifacts/over-production-result.jpg` (local, ignored by Git). Source changes remain in the working tree and have not been pushed to GitHub; include them before a later Git-based redeployment.
+
+## Rejected submission recovery fix
+
+The reported request `b09d1f40-cd36-4e71-8ede-e135e31fa03d` had no database job. Its property criteria reproduced a sample below the three-comparable minimum. The frontend's automatic lookup ran after the create request rejected, replacing the original actionable error with NOT_FOUND.
+
+Known 4xx rejections now persist their message in the local receipt, skip job recovery and offer a new request instead of retrying the rejected payload. Unknown network outcomes retain same-ID recovery. The receipt no longer implies that a rejected submission has a result waiting. Production fix: `dpl_HDzpnMLjyQThmgZoYNXbJbiLPoXw`. Build, lint, 17 related tests and patch checks passed. This patch was deployed directly; keep the two changed frontend files in any later Git-based deployment.
+
+Production browser regression: the insufficient-comparables message remains visible after rejection and reload; the retry button is replaced with new-request recovery. Database lookup confirmed no generation job for either the reported request or regression request `06571025-8231-46f5-ac6d-ca23878c8c32`. No additional Claude invocation. Local screenshot: `artifacts/over-rejection-fixed.jpg`.
+
+## Version 2 rollout
+
+Supabase appraisal v26; frontend production deployment `dpl_B6sgZR1U5sgjD5AXFrtvrj3VMAKp`. Data-only regression for the reported 1969 property now yields 13 residential candidates and ten shortlisted records, including construction years 1960–2027. Sixteen related tests, TypeScript, build and lint passed.
+
+The second Claude request completed in one launch but contained an extra quote immediately after its transactionIds array. Backend v27 recovers only that punctuation pattern, then applies all normal ID, adjustment and output validation. The original stored response is unchanged. Replay yields ten displayed rows, nine valuation inputs, and an outward-rounded scenario envelope of 2,071,000–2,927,000 ILS. The 2,500,000 ILS central estimate and all percentage adjustments are uncalibrated model judgments, not a verified appraisal. No third Claude request was made. Regression tests cover recovery without accepting invented IDs.
+
+Final integrated-browser verification: refreshing the existing job's status rendered success, ten rows, nine valuation references, and the calculated range on the production domain. Screenshot: `artifacts/over-age-adjusted-result.jpg`. Both authorized Claude requests are used. Current source patches, including the rejection handling fix and version-2 behavior, are local and directly deployed, not pushed to GitHub.

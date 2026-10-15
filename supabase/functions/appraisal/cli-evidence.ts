@@ -30,7 +30,7 @@ export async function prepareCliTransactions(value:unknown,address:string,owner:
   try{
    const subject=overSubject(e.query,now);requireThat(subject.address===address);
    const collected=await collectOverTransactions(e.query,{now});
-   requireThat(collected.selected.length>=3,'INSUFFICIENT_COMPARABLES');
+   requireThat(collected.selected.length>0,'NO_NEARBY_TRANSACTIONS');
    return {context:collected,prompt:OVER_PROMPT,input:overPromptInput(collected)};
   }catch(error){if(error instanceof Problem){const problem=new CliProblem('INVALID_INPUT');problem.message=error.message;throw problem;}throw error;}
  }

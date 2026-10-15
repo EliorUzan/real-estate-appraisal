@@ -12,7 +12,7 @@ export async function cliAction(db:DB,user:string,b:Record<string,unknown>,size:
     const previous=await db.rpc("cli_lookup_submission",{p_user:user,p_request:b.requestId,p_hash:body.requestHash});
     dbProblem(previous.error);
     if(previous.data?.job)return {data:await presentation(db,previous.data),status:["queued","running","cancel_requested"].includes(previous.data.job.status)?202:200};
-    if((b.evidence as {kind?:string}|undefined)?.kind==='over'){
+    if(b.modelSelection!=='provider-default'||(b.evidence as {kind?:string}|undefined)?.kind==='over'){
       const accounts=await db.rpc('cli_user_action',{p_user:user,p_action:'listCliConnections',p_body:{}});dbProblem(accounts.error);
       if(!accounts.data?.providers?.some((p:{provider:string;connection?:{id:string;status:string}})=>p.provider==='claude'&&p.connection?.id===b.connectionId&&p.connection.status==='connected'))throw new CliProblem('CONNECTION_CHANGED');
     }

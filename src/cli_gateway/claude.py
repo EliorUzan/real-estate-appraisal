@@ -16,3 +16,14 @@ def arguments():
         '--permission-mode', 'dontAsk', '--setting-sources', '',
         '--settings', '/opt/gateway/claude-research-settings.json',
         '--disable-slash-commands', '--no-session-persistence', '--no-chrome', '--max-turns', '12']
+
+
+MODEL_EFFORT = {'claude-opus-5-5': 'high', 'claude-sonnet-5-5': 'medium', 'claude-haiku-5-5': 'low'}
+
+def model_arguments(provider, selection):
+    if selection == 'provider-default':
+        return []
+    if provider != 'claude' or not isinstance(selection, str) or selection not in MODEL_EFFORT:
+        from .contracts import GatewayError
+        raise GatewayError('UNSUPPORTED_CAPABILITY')
+    return ['--model', selection, '--effort', MODEL_EFFORT[selection]]

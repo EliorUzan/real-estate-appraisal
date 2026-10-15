@@ -2,6 +2,7 @@ import {useEffect,useRef,useState,type FormEvent} from "react";
 import {useCliConnectionController} from "../lib/cli-connection-context";
 import {onboarding,LOGIN_TERMINAL,type SealedEnvelope} from "../lib/cli-onboarding";
 import {sealLoginCode} from "../lib/sealed-secret";
+import {CliActivity} from './CliActivity';
 const labels:Record<string,string>={waiting_for_host:"מפעילים את שרת הסוכן…",queued:"ממתינים לסיום הבקשה הפעילה…",starting:"מכינים כניסה ל-Google…",awaiting_code:"השלימו כניסה ב-Google והדביקו את קוד האישור.",code_received:"קוד האישור התקבל. משלימים את הכניסה…",authenticating:"משלימים את הכניסה…",verifying:"הכניסה נשמרה. בודקים שהסוכן זמין…",succeeded:"החשבון מחובר",verification_blocked:"הכניסה נשמרה, אך הסוכן אינו זמין כרגע.",cancelled:"תהליך החיבור בוטל.",expired:"זמן החיבור פג.",failed:"תהליך החיבור הופסק."};
 export function CliConnectionWizard(){
  const ctx=useCliConnectionController(),dialog=useRef<HTMLDialogElement>(null);
@@ -23,7 +24,7 @@ export function CliConnectionWizard(){
   <div className="title-row"><h2 id="cli-login-title">חיבור חשבון Antigravity</h2><button type="button" className="secondary" onClick={ctx.close}>סגירה</button></div>
   <p>נכנסים לחשבון Google האישי בדפדפן. החיבור נשמר לבקשות הבאות. אין צורך בטרמינל.</p>
   {!session&&<><p>לאחר הכניסה נשלחת בקשת בדיקה קצרה כדי לוודא שהסוכן זמין בחשבון שלכם.</p><button type="button" disabled={ctx.busy||ctx.status?.enabled!==true} onClick={()=>void ctx.start()}>התחלת חיבור</button></>}
-  {session&&<p role="status" aria-live="polite">{labels[session.state]}</p>}
+  {session&&<CliActivity active={sending||!terminal&&session.state!=='awaiting_code'} tone={terminal?(session.state==='succeeded'?'success':'warning'):'neutral'}>{labels[session.state]}</CliActivity>}
   {visible&&challenge&&session?.canSubmitCode&&<>
    <a className="cli-provider-link" href={challenge.authorizationUrl} target="_blank" rel="noopener noreferrer">המשך לכניסה ב-Google ↗</a>
    <p className="muted">אם החלון לא נפתח, לחצו על הקישור שוב. העתיקו מ-Google את קוד האישור בלבד.</p>

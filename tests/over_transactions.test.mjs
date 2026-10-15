@@ -14,9 +14,9 @@ test('requires enough subject attributes; no invented address, invalid dates or 
  assert.equal(subject.address,'בר יוחאי 8, רמת גן');
  for(const patch of [{city:''},{house:'x'},{area:0},{area:'80'},{rooms:0},{propertyType:'מגורים'},{radiusMeters:2000},{startDate:'2026-02-30'},{endDate:'2027-01-01'}])assert.throws(()=>overSubject({...input,...patch},now));
 });
-test('strict similarity selection excludes partial rights, incompatible size/type, missing location, wrong city and date',()=>{
+test('selection retains size and residential-type differences but excludes invalid rights, location and dates',()=>{
  const raw=[sale(),sale(2,{portion_fraction:.5}),sale(3,{area_sqm:150}),sale(4,{rooms:5}),sale(5,{nature:'דירת גן'}),sale(6,{helka:'999'}),sale(7,{date:'2023-01-01'}),sale(8,{settlement:'ירושלים',settlement_code:'3000'}),sale(9,{amount:0}),sale(10,{area_sqm:null}),sale(11,{declared_amount:1200000})];
- const selected=selectOverSales(raw,[parcel()],subject,origin,'6145-0-1203');assert.equal(selected.length,1);
+ const selected=selectOverSales(raw,[parcel()],subject,origin,'6145-0-1203');assert.equal(selected.length,4);
  assert.equal(selected[0].pricePerSqm,30000);assert.equal(selected[0].distanceMeters,0);assert.equal(selected[0].floor,null);
  assert.ok(selected[0].comparison.some(x=>x.includes('אין ודאות')));
 });
@@ -26,11 +26,11 @@ test('actual parcel distance is used; duplicate share rows and conflicting asset
  assert.equal(selectOverSales([sale(),sale(1,{amount:2300000,declared_amount:2300000})],[parcel()],subject,origin,'6145-0-1203').length,0);
  assert.equal(selectOverSales([sale()],[parcel(),{...parcel(),parcel_key:'6145-1-1203'}],subject,origin,'6145-0-1203').length,0);
 });
-test('known construction mismatch, extreme prices and low similarity are excluded',()=>{
- assert.equal(selectOverSales([sale(1,{year_built:2028})],[parcel()],{...subject,yearBuilt:1980},origin,'6145-0-1203').length,0);
+test('construction mismatch, unusual prices and low similarity remain available for analysis',()=>{
+ assert.equal(selectOverSales([sale(1,{year_built:2028})],[parcel()],{...subject,yearBuilt:1980},origin,'6145-0-1203').length,1);
  const selected=selectOverSales([sale(1),sale(2),sale(3),sale(4),sale(5,{amount:20000000,declared_amount:20000000})],[parcel()],subject,origin,'6145-0-1203');
- assert.equal(selected.length,4);
- assert.equal(selectOverSales([sale(1,{area_sqm:60,rooms:2,date:'2024-10-15'})],[parcel(1203,{lat:32.068,lon:34.824461})],subject,origin,'6145-0-1203').length,0);
+ assert.equal(selected.length,5);
+ assert.equal(selectOverSales([sale(1,{area_sqm:60,rooms:2,date:'2024-10-15'})],[parcel(1203,{lat:32.068,lon:34.824461})],subject,origin,'6145-0-1203').length,1);
 });
 test('collector resolves address automatically and sends exactly the top ten in a single frozen input',async()=>{
  const urls=[];
@@ -44,6 +44,33 @@ test('collector resolves address automatically and sends exactly the top ten in 
  const frozen=JSON.parse(overPromptInput(result));assert.equal(frozen.candidates.length,10);
  assert.equal(urls.length,3);assert.equal(urls[2].searchParams.get('date_from'),'2024-10-14');
  assert.ok(urls.every(u=>u.origin==='https://www.over.org.il'));
+ assert.equal(result.version,2);
+ assert.equal(urls[2].searchParams.has('nature'),false);
+ assert.equal(urls[2].searchParams.has('min_rooms'),false);
+});
+test('new workflow retains all rows, allows a weak single comparable and computes adjustment scenarios from source prices',()=>{
+ const v=valid();v.assessments.forEach((a,i)=>{a.accepted=i===0;a.similarity=40;a.adjustment=i===0?{lowPercent:-30,highPercent:-10,reason:'פער גיל; הנחת התאמה לבדיקה'}:null;});
+ v.valuation.transactionIds=[selected[0].id];
+ const result=overTransactionOutput({...context(selected),version:2},JSON.stringify(v));
+ assert.equal(result.transactions.length,3);assert.equal(result.transactions[0].amount,2400000);
+ assert.equal(result.valuation.low,1680000);assert.equal(result.valuation.high,2160000);
+ assert.ok(result.transactions[0].comparison.some(s=>s.includes('-30%')));
+ assert.ok(result.warnings.some(s=>s.includes('מדגם דל')));
+ const typo=JSON.stringify(v).replace(/("transactionIds":\[[^\[\]]*\])(?=,)/,'$1"');
+ const recovered=overTransactionOutput({...context(selected),version:2},typo);
+ assert.deepEqual(recovered.valuation,result.valuation);
+ assert.ok(recovered.warnings.some(s=>s.includes('מרכאה')));
+ assert.throws(()=>overTransactionOutput({...context(selected),version:2},typo.replace(selected[0].id,'invented')));
+ for(const adjustment of [{lowPercent:-100,highPercent:0,reason:'invalid'},{lowPercent:20,highPercent:10,reason:'invalid'},null]){
+  v.assessments[0].adjustment=adjustment;assert.throws(()=>overTransactionOutput({...context(selected),version:2},JSON.stringify(v)));
+ }
+});
+test('new workflow still shows all nearby evidence when no numerical adjustment is defensible',()=>{
+ const v=valid();v.assessments.forEach(a=>{a.accepted=false;a.similarity=20;a.adjustment=null;});
+ v.valuation={...v.valuation,status:'insufficient_data',low:null,high:null,estimate:null,transactionIds:[]};
+ const result=overTransactionOutput({...context(selected),version:2},JSON.stringify(v));
+ assert.equal(result.transactions.length,3);assert.equal(result.valuation.estimate,null);
+ assert.ok(result.transactions.every(t=>t.aiReason.includes('אינה משמשת')));
 });
 test('collection follows a second page, deduplicates and warns at its bounded cap',async()=>{
  const offsets=[];
@@ -81,4 +108,19 @@ test('Claude can refuse to value and reject weak comparables without inventing r
  const v=valid();v.assessments[0].accepted=false;
  v.valuation={...v.valuation,status:'insufficient_data',low:null,high:null,estimate:null,transactionIds:[]};
  const r=overTransactionOutput(context(selected),JSON.stringify(v));assert.equal(r.transactions.length,2);assert.equal(r.valuation.status,'insufficient_data');assert.ok(r.warnings.some(w=>w.includes('נפסלה')));
+});
+
+test('recovers valuation narratives placed at the root without weakening source validation',async()=>{
+ const ctx={...context(selected),version:2}, v=valid();
+ v.assessments.forEach(a=>{a.adjustment={lowPercent:-10,highPercent:10,reason:'Comparison uncertainty'};});
+ const expected=await cliTransactionOutput(ctx,JSON.stringify(v),'claude',null);
+ v.explanation=v.valuation.explanation;v.assumptions=v.valuation.assumptions;
+ delete v.valuation.explanation;delete v.valuation.assumptions;
+ assert.deepEqual(await cliTransactionOutput(ctx,JSON.stringify(v),'claude',null),expected);
+ v.valuation.explanation='Conflicting explanation';
+ assert.throws(()=>overTransactionOutput(ctx,JSON.stringify(v)));
+ delete v.valuation.explanation;v.assumptions='invalid';
+ assert.throws(()=>overTransactionOutput(ctx,JSON.stringify(v)));
+ v.assumptions=expected.valuation.assumptions;v.valuation.transactionIds=['invented'];
+ assert.throws(()=>overTransactionOutput(ctx,JSON.stringify(v)));
 });

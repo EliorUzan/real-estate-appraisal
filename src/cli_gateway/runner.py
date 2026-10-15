@@ -141,7 +141,7 @@ class Docker:
             "--mount", "type=volume,source=" + runtime + ",target=/home/agent",
             "--network", manifest["network"], "--workdir", "/work",
             "--env", "HOME=/home/agent",
-            "--env", "LANG=C.UTF-8", *controls, manifest["image"], *invocation(job["provider"], capability_profile=manifest.get('capabilityProfile'))])
+            "--env", "LANG=C.UTF-8", *controls, manifest["image"], *invocation(job["provider"], capability_profile=manifest.get('capabilityProfile'), model_selection=job.get('modelSelection', 'provider-default'))])
         return name
 
     def start(self, name):
