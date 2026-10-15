@@ -13,6 +13,24 @@ from cli_gateway.claude import MAPS_PROFILE, MAPS_POLICY, MAPS_CHECKS, MAPS_TOOL
 
 
 class ClaudeTests(unittest.TestCase):
+    def test_observed_native_session_limit_is_quota_not_generic_failure(self):
+        from cli_gateway.adapters.base import parse_result, claude_diagnostics
+        from cli_gateway.contracts import GatewayError
+        final = dict(type='result', subtype='success', is_error=True, num_turns=1,
+                     result="You've hit your session limit · resets 4:50pm (UTC)")
+        raw = json.dumps(final).encode()
+        with self.assertRaises(GatewayError) as raised:
+            parse_result('claude', raw, b'', 1)
+        self.assertEqual(raised.exception.code, 'QUOTA_EXCEEDED')
+        self.assertEqual(claude_diagnostics(raw)['nativeErrorTags'], ['quota'])
+        final['is_error'] = False
+        self.assertEqual(parse_result('claude', json.dumps(final).encode(), b'', 0).text, final['result'])
+        for provider, payload, code in [('claude', raw, 124), ('gemini', raw, 1),
+                                        ('claude', b'{}', 1), ('claude', b'', 1)]:
+            with self.assertRaises(GatewayError) as raised:
+                parse_result(provider, payload, raw, code)
+            self.assertNotEqual(raised.exception.code, 'QUOTA_EXCEEDED')
+
     def test_failure_diagnostics_retain_categories_without_native_text(self):
         from cli_gateway.adapters.base import claude_diagnostics
         secret = 'private-response-and-token'

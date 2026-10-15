@@ -34,6 +34,14 @@ This remains the personal experiment, with customer-release gates false and no b
 
 ## Verification and release
 
+### Claude session-limit investigation — 2026-10-15
+
+Job `9b83e187-24ca-43f0-94c8-8c8151ef40b6` for Uziel 48, Ramat Gan launched once and settled as failed after about 16 seconds. Its additional request contained only the owner's Maps instruction, with no hospital test text. The old worker retained only `CLI_FAILED`, stdout 1605 bytes, stderr 0; that attempt's native response is no longer available, so its precise message cannot be recovered.
+
+Two subsequent bounded synthetic probes on the same approved runtime/account failed without needing any Maps lookup. Redacted inspection of the second probe confirmed: `You've hit your session limit · resets 4:50pm (UTC)` (19:50 Israel time on October 15). This confirms the current account limit; it is the likely cause of the original failure, not a recovered message from that attempt. No user job was replayed. The parser now recognizes this observed structured native error as `QUOTA_EXCEEDED`, using the existing frontend quota message. Claude failure logging retains only fixed categories, terminal status and counts, with no customer prompt/output or credentials.
+
+Separately, earlier job `5b6ac36f-2ba7-43f1-aa66-8fa34e0ae2ec` included Hillel Yaffe because the previous test's additional-request field was reused in the form. This was present in the submitted payload, not evidence of Claude conversation memory. The owner replaced that field before the failed job above.
+
 Focused automated tests cover environment evidence reaching the frozen CLI task, unchanged personal instructions, freshness/address checks, payload projection, existing CLI contract validation, model selection, and GovMap parsing. TypeScript, lint for changed frontend files, and the production frontend build are required before commit.
 
 Commit before backend deployment. The owner deploys the frontend to Vercel. After that deployment, verify on the authorized domain with a public test address: collect GovMap data, submit to Claude, and confirm the completed task includes the observed identifiers and appropriate missing-data qualifications. The full live GovMap-to-Claude flow is not verified by unit tests or a build.

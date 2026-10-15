@@ -12,7 +12,7 @@ def native_error_tags(value):
     """Diagnostic categories, not authoritative error-code classification."""
     text = json.dumps(value, ensure_ascii=True).lower() if value else ''
     patterns = {
-        'quota': ('quota', 'resource_exhausted', 'resource exhausted', 'hit your limit', 'usage limit'),
+        'quota': ('quota', 'resource_exhausted', 'resource exhausted', 'hit your limit', 'hit your session limit', 'usage limit'),
         'rate_limit': ('rate limit', 'too many requests', '429'),
         'authentication': ('unauthenticated', 'authentication required', 'invalid credential'),
         'permission': ('permission', 'not allowed', 'access denied'),
@@ -113,6 +113,19 @@ def invocation(provider, *, capability_profile=None, model_selection="provider-d
 def parse_result(provider, stdout: bytes, stderr: bytes, exit_code: int, *, tool_registry_digest=None, capability_profile=None):
     if len(stdout) > MAX_STDOUT or len(stderr) > MAX_STDERR:
         raise GatewayError("OUTPUT_LIMIT", detail="stdout_bytes" if len(stdout) > MAX_STDOUT else "stderr_bytes")
+    if provider == 'claude' and exit_code in (0, 1):
+        # Observed in pinned Claude Code 2.1.296: session exhaustion is
+        # type=result/subtype=success, is_error=true and native exit 1.
+        # Match only that structured native error, never assistant prose/stderr.
+        try:
+            final = json.loads(stdout)
+            if (isinstance(final, dict) and final.get('type') == 'result'
+                    and final.get('subtype') == 'success' and final.get('is_error') is True
+                    and isinstance(final.get('result'), str)
+                    and re.fullmatch(r"You've hit your session limit(?: · resets [^\r\n]{1,100})?", final['result'])):
+                raise GatewayError('QUOTA_EXCEEDED')
+        except (ValueError, UnicodeError):
+            pass
     # Do not classify auth/quota from free-form stderr; changes must have tested fixtures.
     if exit_code != 0:
         raise GatewayError("TIMEOUT" if exit_code == 124 else "CLI_FAILED")
