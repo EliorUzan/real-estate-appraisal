@@ -16,15 +16,21 @@ The environment payload excludes raw SDK transport diagnostics and copied geomet
 
 Existing clients without environment evidence remain compatible. Plot and comparable-sales flows and Claude model selection are preserved. No database migration or native runtime change is needed for this data path.
 
-## Google Maps still pending
+## Google Maps: Claude activated on 2026-10-15
 
-Do not label Maps as connected based on a stored key, a successful tools/list response, or this GovMap change. Activation still needs a valid key, a reviewed Maps-enabled runtime profile, bounded tool calls, real native tool verification, and source attribution.
+The owner supplied a Maps Demo key and authorized shared use for public-place lookup. The credential is stored outside the repository in the Codespace's private runtime directory. Claude mounts an exact, digest-bound HTTP MCP configuration read-only; the key is not a prompt, CLI argument, frontend setting, or database field. Users retain separate native Claude account homes.
 
-Key recovery: use [Google's Maps Demo page](https://developers.google.com/maps/demo-key) with the Google account used originally. Google documents retrieval through Cloud Console and sends retrieval instructions by email. Never paste the key into chat, source control, or a command visible in terminal history.
+The new `claude-web-search-maps-demo-v1` profile allows WebSearch, `mcp__google_maps__search_places`, and `mcp__google_maps__resolve_names`. Filesystem/shell tools and other Maps tools remain denied. The provider relay allows the exact official `mapstools.googleapis.com` hostname. All fifteen network checks passed before activation and again at worker restart.
 
-There is also an unresolved provider compatibility issue. [Maps Grounding Lite requirements](https://developers.google.com/maps/ai/grounding-lite#requirements_for_compatible_llms) restrict model-side storage/caching and training use of Maps content. [Claude Code data usage](https://code.claude.com/docs/en/data-usage) documents consumer-plan training preferences and 30-day retention with model improvement disabled. Disabling local transcripts or telemetry does not prove compliance with the provider-side requirement. Obtain clarification or select a verified compatible model configuration before sending Maps content into Claude Pro; no conclusion that ordinary Pro is compatible has been established.
+Native verification used uzan86's existing Claude account and a public lookup of Hillel Yaffe Medical Center in Hadera. The successful run exposed exactly the three allowed tools, invoked WebSearch and Maps search_places, received a Maps result, included a returned Google Maps link in the final answer, and did not disclose the mounted canary. An earlier attempt stopped with a native error before tool execution; a subsequent bounded test passed. No failed app prompt was replayed.
 
-No billing upgrade or Google Maps activation was performed. The browser key-provisioning feature should be enabled only when its worker store, migration, and compatibility path are ready, not merely to show a working-looking button.
+Activated Claude manifest: `e9197dce5ab1fb185f2ba7bd40bdb83461266f57ea16c3dca8b6f2774671d9dd`. The provider and existing Claude connection were updated together while drained, followed by worker startup and a fresh matching heartbeat before returning the host to ready.
+
+End-to-end verification on the existing deployed frontend also passed as uzan86, using Claude's provider-default model. Job `bb897703-f60e-4afa-be73-944d378a7309` completed for Hillel Yaffe Medical Center in Hadera and returned a Google Maps place link. The response left unverified neighborhood/building details explicitly unresolved. Screenshot evidence is saved locally at `artifacts/claude-maps-live-result.png` (ignored, not committed). The frontend was not redeployed. The gateway test suite passed: 57 tests run, 7 platform-specific skips.
+
+Coverage: the shared credential belongs to the runtime, not uzan86. Additional individually verified Claude homes must use this same approved profile; they do not need separate Maps keys. Only uzan86 currently has a connected Claude home. Antigravity's current approved web-research profile has not been changed to expose Maps, and its Maps compatibility remains unverified. The legacy onboarding Maps status is not a live per-provider capability indicator.
+
+This remains the personal experiment, with customer-release gates false and no billing upgrade. The application does not use Maps results for training. Provider-side data-use preferences were not inspected or changed; local session suppression is not proof of provider-side retention/training settings. The browser key-provisioning migration remains preparatory and was not enabled by this worker upgrade.
 
 ## Verification and release
 
