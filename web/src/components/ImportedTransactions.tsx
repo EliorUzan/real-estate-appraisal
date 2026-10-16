@@ -13,6 +13,7 @@ import {useCliAccount} from '../lib/use-cli-account';
 import {useCliSubmission} from '../lib/use-cli-submission';
 import {CliAccountControls} from './CliAccountControls';
 import {CliSubmissionStatus} from './CliSubmissionStatus';
+import {CollapsibleSection} from './CollapsibleSection';
 import type {CliProvider} from '../lib/cli-agent';
 import type {CliModel} from '../../../supabase/functions/appraisal/cli-models';
 type Account = { defaultProvider: string; settings: { provider_id: string; model_id: string; configured: boolean }[]; nadlanBrowserConfigured?: boolean };
@@ -124,7 +125,7 @@ export function ImportedTransactions({ data, onSettings, automatic = false, exec
       </div>
       <small>ברירת המחדל היא השנתיים האחרונות. המרחק מהנכס אינו מאומת. תאריכים מסננים את הטבלה שנאספה; מאפייני הנכס משמשים לבחירת עסקאות דומות.</small>
       {cliMode?<><CliAccountControls account={cliAccount} onSettings={onSettings}/>{workspaces.length>1&&<label>צוות<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{workspaces.map(w=><option key={w}>{w}</option>)}</select></label>}<p className="muted">העסקאות נאספות ממקור הנתונים הקיים; הניתוח יבוצע באמצעות החשבון האישי בסוכן CLI ויישמר בהיסטוריה. עובדות העסקאות נבדקות מול הטבלה שסופקה.</p></>:<>
-      <div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e => { setProvider(e.target.value); setModel(modelFor(e.target.value)); }}>{catalog.providers.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div>
+      <CollapsibleSection label="ספק AI ומודל"><div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e => { setProvider(e.target.value); setModel(modelFor(e.target.value)); }}>{catalog.providers.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div></CollapsibleSection>
       {!configured && <p className="error">יש להגדיר מפתח API לספק זה. <button type="button" className="text-button" onClick={onSettings}>פתיחת הגדרות</button></p>}
       </>}
       <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} required/>{automatic ? "אני מאשר/ת גישה לקישור ב־Nadlan ושליחת פרטי הנכס, קישור המקור והעסקאות לספק AI הנבחר." : "אני מאשר/ת לשלוח את פרטי הנכס, קישור המקור והעסקאות שסיפקתי לספק AI הנבחר."}</label>

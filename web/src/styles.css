@@ -27,6 +27,9 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 .advanced { margin-top:28px; border-top:1px solid #d7e0e2; padding-top:20px; }
 summary { cursor:pointer; font-weight:bold; padding:12px 0; }
 .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.plot-actions { display:grid; justify-items:start; gap:8px; margin-top:12px; }
+form .plot-map-only { font-size:.85rem; padding:6px 10px; font-weight:normal; background:#eff8f5; color:#125244; border-color:#b7d5cb; }
+form .plot-map-only:hover { background:#e2f0ed; }
 .secondary { color:#125244; background:#eff8f5; }
 .prompt-editor textarea { font-family:Consolas,monospace; line-height:1.7; }
 .prompt-editor textarea:read-only { background:#f6f8fa; }
@@ -36,6 +39,7 @@ summary { cursor:pointer; font-weight:bold; padding:12px 0; }
 .optional-text-field > summary svg { flex-shrink:0; }
 .optional-text-field[open] > summary svg { transform:rotate(180deg); }
 .optional-text-field > summary:focus-visible { outline:3px solid #1f7a68; outline-offset:2px; border-radius:6px; }
+.collapsible-section-content { display:grid; gap:12px; padding-bottom:8px; }
 .cli-activity { display:flex; align-items:flex-start; gap:10px; color:#40545c; line-height:1.6; }
 .cli-activity > svg,.cli-spinner { flex-shrink:0; margin-top:3px; }
 .cli-activity-success { color:#12634f; }

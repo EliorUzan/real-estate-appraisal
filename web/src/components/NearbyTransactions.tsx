@@ -16,6 +16,7 @@ import {useCliSubmission} from '../lib/use-cli-submission';
 import {CliAccountControls} from './CliAccountControls';
 import {CliSubmissionStatus} from './CliSubmissionStatus';
 import {ExecutionModeControl} from './ExecutionModeControl';
+import {CollapsibleSection} from './CollapsibleSection';
 import type {CliProvider} from '../lib/cli-agent';
 type Execution={executionMode?:'api'|'cli';userId?:string;workspaces?:string[];defaultCliProvider?:CliProvider;defaultCliModel?:CliModel};
 type Account = { defaultProvider: string; settings: { provider_id: string; model_id: string; configured: boolean }[]; nadlanConfigured?: boolean; nadlanBrowserConfigured?: boolean };
@@ -115,7 +116,7 @@ function GovMapNearbyTransactions({ data, onSettings,executionMode="cli",userId=
       <small>ללא תקופה או רדיוס בבקשה: שנתיים אחרונות ו־500 מטרים. שדות מפורשים קודמים לתיאור החופשי. חדרים ושטח משמשים לדירוג דמיון, לא לסינון קשיח.</small>
       {cliMode&&<small>במצב CLI יש להזין את הכתובת בשדה הכתובת. תקופה ורדיוס נקבעים מהשדות המפורשים או מברירות המחדל; התיאור החופשי משמש להשוואה.</small>}
       {cliMode?<><CliAccountControls account={cliAccount} onSettings={onSettings}/>{workspaces.length>1&&<label>צוות<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{workspaces.map(w=><option key={w}>{w}</option>)}</select></label>}</>:<>
-      <div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e => {setProvider(e.target.value); setModel(modelFor(e.target.value));}}>{catalog.providers.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div>
+      <CollapsibleSection label="ספק AI ומודל"><div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e => {setProvider(e.target.value); setModel(modelFor(e.target.value));}}>{catalog.providers.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div></CollapsibleSection>
       {!configured && <p className="error">יש להגדיר מפתח API לספק זה. <button type="button" className="text-button" onClick={onSettings}>פתיחת הגדרות</button></p>}
       </>}
       <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את פרטי החיפוש ל־GovMap ואת פרטי הנכס והעסקאות שהתקבלו לספק AI הנבחר.</label>

@@ -1,5 +1,5 @@
 import type { Session } from "@supabase/supabase-js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "./lib/edge";
 import { supabase } from "./lib/supabase";
@@ -20,7 +20,10 @@ import { CollapsibleTextarea } from "./components/CollapsibleTextarea";
 import { ExecutionModeControl } from "./components/ExecutionModeControl";
 import { ExecutionDefaultsSettings } from "./components/ExecutionDefaultsSettings";
 import {readExecutionDefaults,type ExecutionDefaults,type ExecutionPage} from './lib/execution-defaults';
-import type { PlotAnalysisData } from "./lib/plot-description";
+import {useGovMapCollection} from './lib/use-govmap-collection';
+import {PlotProgress} from './components/PlotProgress';
+import {CliActivity} from './components/CliActivity';
+import {CollapsibleSection} from './components/CollapsibleSection';
 
 type Setting = { provider_id:string; model_id:string; configured:boolean; key_last4:string|null };
 type Prompt = { section_id:string; content:string; version:number };
@@ -128,51 +131,54 @@ function NewRequest({data,onSettings,userId,active,defaults}:{data:Bootstrap;onS
     {section!=="nearby_transactions"&&<ExecutionModeControl value={mode} onChange={value=>setModeChoice({page:section,defaultsKey,mode:value==='api'?'api':'cli'})}/>}
     {section==="nearby_transactions"?<NearbyTransactions key={defaultsKey} data={pageData} onSettings={onSettings} executionMode={mode} defaultCliProvider={pageDefaults.cliProvider} defaultCliModel={pageDefaults.cliModel} userId={userId} workspaces={data.members.map(m=>m.workspace_id)}/>
       :mode==="cli"?<CliRequest key={section+pageDefaults.cliProvider+pageDefaults.cliModel} sectionId={section==="plot_description"?"plot_description":"environment_description"} userId={userId} workspaces={data.members.map(m=>m.workspace_id)} onSettings={onSettings} active={active} defaultCliProvider={pageDefaults.cliProvider} defaultCliModel={pageDefaults.cliModel}/>
-      :<SectionRequest key={section+pageDefaults.apiProvider+pageDefaults.apiModel} section={section} data={pageData} onSettings={onSettings}/>}
+      :<SectionRequest key={section+pageDefaults.apiProvider+pageDefaults.apiModel} section={section} data={pageData} onSettings={onSettings} active={active}/>}
   </>;
 }
-function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap;onSettings:()=>void}){
+function SectionRequest({section,data,onSettings,active=true}:{section:string;data:Bootstrap;onSettings:()=>void;active?:boolean}){
   const isPlot=section==="plot_description";
   const [provider,setProvider]=useState(data.defaultProvider),[model,setModel]=useState(data.settings.find(s=>s.provider_id===data.defaultProvider)?.model_id??catalog.providers.find(p=>p.id===data.defaultProvider)!.models[0][1]);
   const [address,setAddress]=useState(""),[example,setExample]=useState(""),[additional,setAdditional]=useState(""),[workspace,setWorkspace]=useState(data.members[0].workspace_id);
   const [exampleFiles,setExampleFiles]=useState<File[]>([]),[additionalFiles,setAdditionalFiles]=useState<File[]>([]),[consent,setConsent]=useState(true),[search,setSearch]=useState(false);
   const [busy,setBusy]=useState(false),[output,setOutput]=useState(""),[error,setError]=useState(""),[notice,setNotice]=useState("");
-  const [mapAddress,setMapAddress]=useState(""),[lookupVersion,setLookupVersion]=useState(0);
-  const [plotData,setPlotData]=useState<PlotAnalysisData|null>(null);
+  const [mapAddress,setMapAddress]=useState("");
+  const map=useGovMapCollection(active),submitting=useRef(false);
+  const [plotStage,setPlotStage]=useState<string|null>(null);
   const pdfAvailable=["openai","gemini","anthropic"].includes(provider);
   const searchAvailable=["openai","gemini","anthropic"].includes(provider)||(provider==="groq"&&["openai/gpt-oss-20b","openai/gpt-oss-120b"].includes(model));
   const configured=data.settings.find(s=>s.provider_id===provider)?.configured;
-  function lookup(e:FormEvent){e.preventDefault();if(!address.trim()){setError("יש להזין כתובת נכס לפני אחזור נתוני חלקה.");return;}setPlotData(null);setOutput("");setError("");setNotice("");setMapAddress(address.trim());setLookupVersion(v=>v+1);}
+  function lookup(){if(!address.trim()){setError("יש להזין כתובת נכס לפני אחזור נתוני חלקה.");return;}setOutput("");setError("");setNotice("");setPlotStage(null);map.lookup(address.trim());}
   async function generate(e:FormEvent){
     e.preventDefault();
-    if(busy)return;
-    const issues=[!address.trim()?"יש להזין כתובת נכס.":"",!configured?"יש להגדיר מפתח API לספק בהגדרות.":"",!model.trim()?"יש לבחור מודל AI.":"",!consent?"יש לאשר העברת הנתונים לספק.":"",isPlot&&(!plotData||plotData.address!==address.trim())?"יש להשלים איתור חלקה ואיסוף נתוני GovMap לפני יצירת התיאור.":""].filter(Boolean);
+    if(busy||submitting.current)return;
+    const issues=[!address.trim()?"יש להזין כתובת נכס.":"",!configured?"יש להגדיר מפתח API לספק בהגדרות.":"",!model.trim()?"יש לבחור מודל AI.":"",!consent?"יש לאשר העברת הנתונים לספק.":""].filter(Boolean);
     if(issues.length){setError(issues.join(" "));return;}
     if(!(e.currentTarget as HTMLFormElement).reportValidity())return;
-    setBusy(true);setError("");setNotice("");setOutput("");
+    submitting.current=true;setBusy(true);setError("");setNotice("");setOutput("");setPlotStage(null);
     if(!isPlot)setMapAddress(address.trim());
     try{
       const all=[...exampleFiles,...additionalFiles];
       if(all.length>5||all.reduce((n,f)=>n+f.size,0)>10*1024*1024)throw new Error("מותר לצרף עד 5 קבצים ובסך הכול עד 10 MB.");
       if(!pdfAvailable&&all.some(f=>/\.pdf$/i.test(f.name)))throw new Error("יש לבחור ספק התומך ב־PDF או להסיר את הקובץ.");
       const files=await Promise.all([...exampleFiles.map(f=>encodeFile(f,"example")),...additionalFiles.map(f=>encodeFile(f,"additional"))]);
+      if(isPlot)setPlotStage('collecting');
+      const plotData=isPlot?await map.collect(address.trim()):null;
       const plotEvidence=isPlot?JSON.stringify(plotData):undefined;
       if(plotEvidence&&plotEvidence.length>1000000)throw new Error("נתוני המיפוי גדולים מדי לשליחה (מעל מיליון תווים). לא נשלחו נתונים חלקיים.");
+      if(isPlot)setPlotStage('running');
       const result=await api<{job:Job}>("generate",{requestId:crypto.randomUUID(),workspace,section,address:isPlot?plotData!.address:address,example,additional,plotEvidence,provider,model,consent,search:!isPlot&&search&&searchAvailable,files});
       if(result.job.status!=="succeeded")throw new Error("הבקשה בטיפול. בדקו את ההיסטוריה.");
-      setOutput(result.job.output_text??"");setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");
-    }catch(e){setError(message(e));}finally{setBusy(false);}
+      setOutput(result.job.output_text??"");setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");if(isPlot)setPlotStage('succeeded');
+    }catch(e){setError(message(e));if(isPlot)setPlotStage('failed');}finally{setBusy(false);submitting.current=false;}
   }
-  const addressInput=<label>כתובת הנכס<input value={address} onChange={e=>{setAddress(e.target.value);if(isPlot){setMapAddress("");setPlotData(null);setOutput("");}}} required maxLength={500} placeholder="לדוגמה: התחייה 2, חדרה"/></label>;
+  const addressInput=<label>כתובת הנכס<input value={address} onChange={e=>{setAddress(e.target.value);if(isPlot){map.lookup('');setOutput("");setPlotStage(null);}}} required maxLength={500} placeholder="לדוגמה: התחייה 2, חדרה"/></label>;
   return <>
-    {isPlot&&<><p className="muted">מאתרים את החלקה, בודקים את נתוני המיפוי ולאחר מכן יוצרים את התיאור.</p><form onSubmit={lookup} noValidate><fieldset disabled={busy} className="request-fields">{addressInput}<button>אחזור נתוני חלקה מ־GovMap</button></fieldset></form>
-    {mapAddress&&<div inert={busy}><GovMapPanel key={lookupVersion} address={mapAddress} mode="plot" onPlotData={setPlotData}/></div>}</>}
+    {isPlot&&<p className="muted">בלחיצה אחת נאספים נתוני GovMap ונשלחים לספק ולמודל שנבחרו ליצירת תיאור החלקה.</p>}
     <form onSubmit={generate} noValidate className={isPlot?"plot-generation":""}>
     {isPlot&&<h2>יצירת תיאור החלקה</h2>}
     <fieldset disabled={busy} className="request-fields">
-      {!isPlot&&addressInput}
+      {addressInput}
       {data.members.length>1&&<label>סביבת עבודה<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{data.members.map(m=><option key={m.workspace_id}>{m.workspace_id}</option>)}</select></label>}
-      <div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e=>{const id=e.target.value;setProvider(id);setModel(data.settings.find(s=>s.provider_id===id)?.model_id??catalog.providers.find(p=>p.id===id)!.models[0][1]);}}>{catalog.providers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div>
+      <CollapsibleSection label="ספק AI ומודל"><div className="two-columns"><label>ספק AI<span className="provider-choice"><Icon provider={provider}/><select value={provider} onChange={e=>{const id=e.target.value;setProvider(id);setModel(data.settings.find(s=>s.provider_id===id)?.model_id??catalog.providers.find(p=>p.id===id)!.models[0][1]);}}>{catalog.providers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></span></label><Models provider={provider} value={model} onChange={setModel}/></div></CollapsibleSection>
       {!configured&&<p className="error">יש להגדיר מפתח API לספק זה. <button type="button" className="text-button" onClick={onSettings}>פתיחת הגדרות</button></p>}
       {!isPlot&&<><CollapsibleTextarea label="דוגמה לסגנון הרצוי" rows={5} value={example} onChange={setExample}/><label>קובצי דוגמה<input type="file" multiple accept={pdfAvailable?".pdf,.txt,.md,.csv":".txt,.md,.csv"} onChange={e=>setExampleFiles(Array.from(e.target.files??[]))}/></label></>}
       <CollapsibleTextarea label={isPlot?"בקשות נוספות לתיאור החלקה":"בקשה נוספת"} rows={3} value={additional} onChange={setAdditional}/>
@@ -180,11 +186,14 @@ function SectionRequest({section,data,onSettings}:{section:string;data:Bootstrap
       <small>עד 5 קבצים, 10 MB בסך הכול. PDF נתמך ב־ChatGPT, Gemini ו־Claude.</small>
       {!isPlot&&<label className="checkbox"><input type="checkbox" checked={search&&searchAvailable} disabled={!searchAvailable} onChange={e=>setSearch(e.target.checked)}/>חיפוש מידע עדכני באינטרנט</label>}
       <label className="checkbox privacy-notice"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את התוכן והקבצים לספק שנבחר ולשמור את הטיוטה בהיסטוריית הצוות.</label>
-      {isPlot&&!plotData&&<p role="status">יצירת התיאור תהיה זמינה לאחר השלמת איתור החלקה ואיסוף הנתונים.</p>}
-      <div className="actions"><button disabled={busy||(isPlot&&!plotData)}>{busy?"יוצר טיוטה…":isPlot?"צור תיאור חלקה באמצעות AI":"צור"}</button>
+      <div className={isPlot?'plot-actions':'actions'}><button disabled={busy}>{map.collecting?'אוסף נתוני GovMap…':busy?"יוצר טיוטה…":isPlot?"אחזור נתוני GovMap ויצירת תיאור חלקה":"צור"}</button>
+      {isPlot&&<button type="button" className="secondary plot-map-only" onClick={lookup}>אחזור נתוני GovMap בלבד</button>}
       {!isPlot&&<button type="button" className="secondary" onClick={()=>{if(!address.trim())setError("יש להזין כתובת נכס כדי להציג מפה.");else setMapAddress(address.trim());}}>הצג מפה לכתובת</button>}</div>
     </fieldset></form>
-    {busy&&<p role="status">הבקשה נשלחה לעיבוד.</p>}{error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status" className="success">{notice}</p>}
+    {isPlot&&plotStage&&<><CliActivity active={busy} tone={plotStage==='succeeded'?'success':plotStage==='failed'?'warning':'neutral'}>{plotStage==='collecting'?'אוסף נתוני GovMap. אם מוצגות כמה חלקות, בחרו את החלקה במפה.':plotStage==='running'?'נתוני GovMap התקבלו. המודל יוצר את תיאור החלקה…':plotStage==='succeeded'?'תיאור החלקה מוכן':'יצירת תיאור החלקה הופסקה.'}</CliActivity><PlotProgress phase={plotStage} mode="api"/></>}
+    {isPlot&&map.collecting&&<button type="button" className="secondary" onClick={()=>map.cancel('האיסוף בוטל. הבקשה לא נשלחה לסוכן.')}>ביטול איסוף</button>}
+    {busy&&!isPlot&&<p role="status">הבקשה נשלחה לעיבוד.</p>}{error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status" className="success">{notice}</p>}
+    {isPlot&&map.address&&<div inert={busy&&!map.collecting}><GovMapPanel key={map.version} address={map.address} mode="plot" onPlotData={map.receive} onError={message=>{setError(message);map.cancel(message);}}/></div>}
     {output&&<Report text={output}/>}
     {!isPlot&&mapAddress&&<GovMapPanel address={mapAddress}/>}
   </>;

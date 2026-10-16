@@ -4,8 +4,9 @@ import { cli,cliLabels,terminal,type CliJob } from "../lib/cli-agent";
 import {TransactionTable} from './TransactionTable';
 import {CLI_MODELS} from '../../../supabase/functions/appraisal/cli-models';
 import {CliActivity,CliProgress} from './CliActivity';
+import {PlotProgress} from './PlotProgress';
 const labels:Record<string,string>={queued:"ממתין בתור",running:"הסוכן עובד",cancel_requested:"ממתין לאישור עצירת הסוכן",succeeded:"הושלם",failed:"נכשל",cancelled:"בוטל",expired:"פג תוקף",needs_review:"תוצאת ההפעלה דורשת בדיקה"};
-export function CliJobStatus({jobId,initial,onTerminal}:{jobId:string;initial:CliJob|null;onTerminal:()=>void}){
+export function CliJobStatus({jobId,initial,onTerminal,plot=false}:{jobId:string;initial:CliJob|null;onTerminal:()=>void;plot?:boolean}){
   const [job,setJob]=useState<CliJob|null>(initial),[error,setError]=useState(""),[cancelling,setCancelling]=useState(false),[refresh,setRefresh]=useState(0);
   useEffect(()=>{
     let disposed=false,timer:ReturnType<typeof setTimeout>|undefined,inFlight=false,failures=0,finished=false;
@@ -24,7 +25,7 @@ export function CliJobStatus({jobId,initial,onTerminal}:{jobId:string;initial:Cl
   },[jobId,refresh,onTerminal]);
   async function cancel(){setCancelling(true);try{const r=await cli.cancel(jobId);setJob(r.job);setError("");if(terminal(r.job.status))onTerminal();setRefresh(v=>v+1);}catch(e){setError(e instanceof Error?e.message:"הביטול לא אושר");}finally{setCancelling(false);}}
   const stopped=!!job&&terminal(job.status),succeeded=job?.status==='succeeded';
-  return <section className="account-settings" aria-label="מצב בקשת CLI"><CliActivity active={!stopped&&!error} tone={error||stopped&&!succeeded?'warning':succeeded?'success':'neutral'}>{error?'לא ניתן לעדכן את מצב הבקשה':job?labels[job.status]??job.status:"בודק את מצב הבקשה…"}</CliActivity>{job&&!error&&<CliProgress status={job.status}/>}<small><bdi>{jobId}</bdi></small>
+  return <section className="account-settings" aria-label="מצב בקשת CLI"><CliActivity active={!stopped&&!error} tone={error||stopped&&!succeeded?'warning':succeeded?'success':'neutral'}>{error?'לא ניתן לעדכן את מצב הבקשה':job?labels[job.status]??job.status:"בודק את מצב הבקשה…"}</CliActivity>{job&&!error&&(plot?<PlotProgress mode="cli" phase={job.status}/>:<CliProgress status={job.status}/>)}<small><bdi>{jobId}</bdi></small>
     {job&&<p>{cliLabels[job.provider]} · נבחר: {CLI_MODELS.find(m=>m.id===job.modelRequested)?.label??job.modelRequested}{job.modelResolved&&<> · הופעל: <bdi>{job.modelResolved}</bdi></>}</p>}
     {job?.error&&<p role="alert" className="error">{job.error.message}</p>}{error&&<p role="alert" className="error">{error}</p>}
     <div className="actions">{job&&!terminal(job.status)&&<button type="button" className="secondary" disabled={cancelling||job.status==="cancel_requested"} onClick={cancel}>ביטול הבקשה</button>}<button type="button" className="secondary" onClick={()=>setRefresh(v=>v+1)}>בדיקת מצב</button></div>

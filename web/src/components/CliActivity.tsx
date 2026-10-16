@@ -13,8 +13,12 @@ const stageByStatus:Record<string,number>={waking:0,sending:0,queued:1,running:2
 export function CliProgress({status}:{status:string}){
  const current=stageByStatus[status];
  if(current===undefined)return null;
- return <ol className="cli-progress" aria-label="שלבי בקשת CLI">
-  {stages.map((label,index)=><li key={label} className={index<current||status==='succeeded'?'is-complete':index===current?'is-current':''} aria-current={index===current?'step':undefined}>
+ return <RequestProgress stages={stages} current={current} complete={status==='succeeded'} label="שלבי בקשת CLI"/>;
+}
+
+export function RequestProgress({stages,current,complete=false,label}:{stages:readonly string[];current:number;complete?:boolean;label:string}){
+ return <ol className="cli-progress" style={{gridTemplateColumns:`repeat(${stages.length},minmax(0,1fr))`}} aria-label={label}>
+  {stages.map((label,index)=><li key={label} className={index<current||complete?'is-complete':index===current?'is-current':''} aria-current={index===current?'step':undefined}>
    <span className="cli-progress-segment" aria-hidden="true"/><span>{label}</span>
   </li>)}
  </ol>;

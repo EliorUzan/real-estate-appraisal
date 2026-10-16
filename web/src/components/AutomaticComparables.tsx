@@ -3,6 +3,7 @@ import {useCliAccount} from '../lib/use-cli-account';
 import {useCliSubmission} from '../lib/use-cli-submission';
 import {CliSubmissionStatus} from './CliSubmissionStatus';
 import {CliModelControl} from './CliModelControl';
+import {CollapsibleSection} from './CollapsibleSection';
 import {connectionHelp} from '../lib/cli-status';
 import {OVER_TYPES,overSubject} from '../../../supabase/functions/appraisal/over-transactions';
 import type {CliModel} from '../../../supabase/functions/appraisal/cli-models';
@@ -48,9 +49,9 @@ export function AutomaticComparables({userId='',workspaces=[],onSettings,default
    </div>
    <small>ללא תאריכים: שנתיים אחרונות. שטח וחדרים נדרשים לסינון ולהערכת שווי.</small>
    <label>תיאור הנכס ופרטים נוספים<textarea rows={4} maxLength={6000} value={description} onChange={e=>setDescription(e.target.value)} placeholder='מצב, חניה, מעלית, מרפסת ופרטים נוספים לבדיקה'/></label>
-   <p><strong>Claude CLI</strong> · בקשת ניתוח אחת לאחר האיסוף והסינון.</p><CliModelControl account={account}/>
+   <CollapsibleSection label="חשבון CLI ומודל"><p><strong>Claude CLI</strong> · בקשת ניתוח אחת לאחר האיסוף והסינון.</p><CliModelControl account={account}/>
+   <div className='actions'><button type='button' className='secondary' onClick={onSettings}>ניהול חשבון Claude CLI</button><button type='button' className='secondary' disabled={account.loading} onClick={account.refresh}>רענון זמינות</button></div></CollapsibleSection>
    {account.selected&&<p role='status'>{account.wakeAllowed?'החשבון מחובר והשרת במנוחה. שליחה תפעיל אותו אוטומטית לפני הניתוח.':connectionHelp(account.selected)}</p>}
-   <div className='actions'><button type='button' className='secondary' onClick={onSettings}>ניהול חשבון Claude CLI</button><button type='button' className='secondary' disabled={account.loading} onClick={account.refresh}>רענון זמינות</button></div>
    {workspaces.length>1&&<label>צוות<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{workspaces.map(w=><option key={w}>{w}</option>)}</select></label>}
    <label className='checkbox privacy-notice'><input type='checkbox' checked={consent} onChange={e=>setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את הכתובת ופרטי החיפוש ל־over.org.il ואת פרטי הנכס והעסקאות שנבחרו לחשבון Claude CLI, ולשמור את התוצאה בהיסטוריית הצוות.</label>
    <button disabled={run.busy||!!run.identity}>{run.busy?'אוסף עסקאות ומכין ניתוח…':'איסוף עסקאות והערכת שווי עם Claude'}</button>
