@@ -59,7 +59,7 @@ export function CliRequest({userId,workspaces,onSettings,active=true,sectionId='
   {map.collecting&&<p role='status'>אוסף נתוני GovMap לפני השליחה. אם מוצגות כמה חלקות, בחרו את החלקה במפה. <button type='button' className='secondary' onClick={()=>map.cancel('האיסוף בוטל. הבקשה לא נשלחה לסוכן.')}>ביטול איסוף</button></p>}
   {plot&&map.collecting&&<PlotProgress mode="cli" phase="collecting"/>}
   <CliSubmissionStatus run={run} plot={plot}/>
-  {plot&&map.address&&<div inert={run.busy}><GovMapPanel key={map.version} address={map.address} mode='plot' onPlotData={map.receive} onError={message=>{setError(message);map.cancel(message);}}/></div>}
-  {!plot&&map.address&&<GovMapPanel key={map.version} address={map.address} mode={includeMap?'environment':'map'} onPlotData={value=>{map.receive(value);if(value)setMapError('');}} onError={message=>{map.receive(null);setMapError(message);}}/>}
+  {plot&&map.address&&<div inert={run.busy}><GovMapPanel key={map.version} address={map.address} mode='plot' reveal onPlotData={map.receive} onError={message=>{setError(message);map.cancel(message);}}/></div>}
+  {!plot&&map.address&&<GovMapPanel key={map.version} address={map.address} mode={includeMap?'environment':'map'} reveal onPlotData={value=>{map.receive(value);if(value)setMapError('');}} onError={message=>{map.receive(null);setMapError(message);}}/>}
  </>;
 }

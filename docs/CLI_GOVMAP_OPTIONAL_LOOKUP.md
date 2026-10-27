@@ -1,6 +1,6 @@
 # Optional GovMap lookup and address suggestions
 
-27 October 2026. The initial implementation was subsequently deployed by the owner and its live autocomplete failure was reproduced. **The correction described below awaits deployment.** No backend migration, worker restart, Git push, or live inference was performed for this correction.
+27 October 2026. The initial implementation was subsequently deployed by the owner and its live autocomplete failure was reproduced. The user then explicitly authorized production deployment and live verification. Correction `e42a30a` was released with commit `e247f63642428b69e34e5593bf65547343f9dbf9`, through the existing Git integration, as Vercel deployment `dpl_8krWawuGviGt3gu1qfLkcDrskqtD` (READY, production alias assigned). No backend migration, worker restart, or live inference was performed for this correction.
 
 ## Bar Yochai autocomplete regression
 
@@ -8,9 +8,11 @@ The user reported that `בר יוחאי 8, רמת גן` was incorrectly shown as
 
 The signed-in main form's map button was also verified for that exact input. The first SDK load failed; one explicit retry completed collection, displayed block 6145 / parcel 1203, and changed the parent form status to `נתוני GovMap מוכנים ויצורפו לבקשה.` No CLI generation was submitted. This establishes that the full map-to-environment-evidence path works for the reported address, while retaining the observed transient loading failure rather than calling every lookup reliable.
 
+During post-deployment verification, selecting the now-working suggestion exposed a separate readiness timeout: the map was below the long form and the console recorded `{stage:'map', reason:'GovMap timed out'}`. Explicit CLI map lookups now reveal their panel immediately using `scrollIntoView`, so the render-dependent GovMap readiness callback can run. Passive report/history embeds do not scroll. The browser regression checks that selecting the reported address makes the map frame visible; build and lint pass. Live verification follows deployment of this small visibility correction.
+
 The correction removes the unverified API layer filter and filters `type === 'address'` locally, preserving explicit selection. The search limit is 20 before the parser reduces it to eight address suggestions, allowing mixed street/city results without prematurely exhausting the list. Empty suggestions now explicitly say they do not establish that an address is absent and point to the separate map button. The earlier assumption below that this SDK filter was supported was incorrect; the SDK forwards the object unchanged, and its internal use of that filter is not evidence of successful live behavior.
 
-Seven isolated browser regressions and 22 Node tests pass, including the reported address and empty-suggestions message; production build and full frontend lint pass. Live verification of the **corrected suggestions request** is still required on the approved production domain. Localhost returns `401 Invalid API token or unauthorized domain` with and without the filter; no Origin header spoofing or proxy was used. The map success alone does not establish that corrected autocomplete works.
+Seven isolated browser regressions and 22 Node tests pass, including the reported address and empty-suggestions message; production build and full frontend lint pass. **Live corrected autocomplete verified:** after reloading the signed-in production app, entering `בר יוחאי 8, רמת גן` returned the option `בר יוחאי 8 רמת גן`. Arrow Down + Enter selected it, updated the input to the canonical address, and opened the map without submitting an AI job. This confirms the live filter correction, beyond the earlier mocked tests. Localhost returns `401 Invalid API token or unauthorized domain` with and without the filter; no Origin header spoofing or proxy was used.
 
 ## Cause and behavior
 

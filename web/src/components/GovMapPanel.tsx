@@ -1,8 +1,15 @@
 import { useEffect, useRef } from "react";
 import type { PlotAnalysisData } from "../lib/plot-description";
 
-export function GovMapPanel({ address, mode = "map", onPlotData, onError }: { address: string; mode?: "map" | "plot" | "environment"; onPlotData?:(data:PlotAnalysisData|null)=>void; onError?:(message:string)=>void }) {
+export function GovMapPanel({ address, mode = "map", reveal=false, onPlotData, onError }: { address: string; mode?: "map" | "plot" | "environment"; reveal?:boolean; onPlotData?:(data:PlotAnalysisData|null)=>void; onError?:(message:string)=>void }) {
   const frame=useRef<HTMLIFrameElement>(null);
+  const panel=useRef<HTMLElement>(null);
+  useEffect(()=>{
+    // GovMap's onLoad readiness depends on rendering. An explicitly requested
+    // map must be visible, not throttled below the long request form. History
+    // and passive report embeds leave reveal=false and never steal the scroll.
+    if(reveal)panel.current?.scrollIntoView({block:'start',behavior:'instant'});
+  },[address,mode,reveal]);
   useEffect(()=>{
     const receive=(event:MessageEvent)=>{
       if(event.origin!==location.origin || event.source!==frame.current?.contentWindow)return;
@@ -17,7 +24,7 @@ export function GovMapPanel({ address, mode = "map", onPlotData, onError }: { ad
   // A separate same-origin document isolates each SDK instance (including history
   // reports) and tears down its message listeners when React removes the frame.
   // The fragment keeps the address out of hosting request logs and referrers.
-  return <section className="govmap-panel" aria-label={mode === "plot" ? "תיאור החלקה ומפת GovMap" : "מפת הנכס וגוש וחלקה"}>
+  return <section ref={panel} className="govmap-panel" aria-label={mode === "plot" ? "תיאור החלקה ומפת GovMap" : "מפת הנכס וגוש וחלקה"}>
     <iframe
       ref={frame}
       key={`${mode}:${address}`}

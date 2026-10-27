@@ -72,6 +72,8 @@ test('reported Bar Yochai address is suggested without the invalid API layer fil
  const page=await pageFor(t,'bar-yochai',false,'בר יוחאי 8, רמת גן');
  await page.getByRole('option',{name:'בר יוחאי 8 רמת גן',exact:true}).click();
  assert.equal(await page.getByRole('combobox').inputValue(),'בר יוחאי 8 רמת גן');
+ const frameVisible=await page.locator('.govmap-frame').evaluate(el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;});
+ assert.ok(frameVisible,'explicit map lookup reveals its frame for render-dependent readiness');
  await mapMessage(page,'plot-evidence',{...evidence('בר יוחאי 8 רמת גן'),gush:'6145',parcel:'1203'});
  await page.getByText('נתוני GovMap מוכנים ויצורפו לבקשה.',{exact:true}).waitFor();
  await send(page);
