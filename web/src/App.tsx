@@ -7,6 +7,7 @@ import catalog from "./catalog.json";
 import {IMPORTED_TRANSACTION_PROMPT} from "../../supabase/functions/appraisal/imported-transactions";
 import plotAgent from "./plot-prompt.json";
 import { GovMapPanel } from "./components/GovMapPanel";
+import { GovMapAddressInput } from "./components/GovMapAddressInput";
 import { History } from "./components/History";
 import { CliConnections } from "./components/CliConnections";
 import { CliRequest } from "./components/CliRequest";
@@ -134,7 +135,7 @@ function NewRequest({data,onSettings,userId,active,defaults}:{data:Bootstrap;onS
       :<SectionRequest key={section+pageDefaults.apiProvider+pageDefaults.apiModel} section={section} data={pageData} onSettings={onSettings} active={active}/>}
   </>;
 }
-function SectionRequest({section,data,onSettings,active=true}:{section:string;data:Bootstrap;onSettings:()=>void;active?:boolean}){
+export function SectionRequest({section,data,onSettings,active=true}:{section:string;data:Bootstrap;onSettings:()=>void;active?:boolean}){
   const isPlot=section==="plot_description";
   const [provider,setProvider]=useState(data.defaultProvider),[model,setModel]=useState(data.settings.find(s=>s.provider_id===data.defaultProvider)?.model_id??catalog.providers.find(p=>p.id===data.defaultProvider)!.models[0][1]);
   const [address,setAddress]=useState(""),[example,setExample]=useState(""),[additional,setAdditional]=useState(""),[workspace,setWorkspace]=useState(data.members[0].workspace_id);
@@ -170,7 +171,7 @@ function SectionRequest({section,data,onSettings,active=true}:{section:string;da
       setOutput(result.job.output_text??"");setNotice("הטיוטה נוצרה ונשמרה בהיסטוריית הצוות.");if(isPlot)setPlotStage('succeeded');
     }catch(e){setError(message(e));if(isPlot)setPlotStage('failed');}finally{setBusy(false);submitting.current=false;}
   }
-  const addressInput=<label>כתובת הנכס<input value={address} onChange={e=>{setAddress(e.target.value);if(isPlot){map.lookup('');setOutput("");setPlotStage(null);}}} required maxLength={500} placeholder="לדוגמה: התחייה 2, חדרה"/></label>;
+  const addressInput=isPlot?<GovMapAddressInput value={address} active={active&&!busy} onChange={value=>{setAddress(value);map.lookup('');setOutput("");setError("");setNotice("");setPlotStage(null);}} onSelect={value=>{setAddress(value);setOutput("");setError("");setNotice("");setPlotStage(null);map.lookup(value);}}/>:<label>כתובת הנכס<input value={address} onChange={e=>setAddress(e.target.value)} required maxLength={500} placeholder="לדוגמה: התחייה 2, חדרה"/></label>;
   return <>
     {isPlot&&<p className="muted">בלחיצה אחת נאספים נתוני GovMap ונשלחים לספק ולמודל שנבחרו ליצירת תיאור החלקה.</p>}
     <form onSubmit={generate} noValidate className={isPlot?"plot-generation":""}>
@@ -193,7 +194,7 @@ function SectionRequest({section,data,onSettings,active=true}:{section:string;da
     {isPlot&&plotStage&&<><CliActivity active={busy} tone={plotStage==='succeeded'?'success':plotStage==='failed'?'warning':'neutral'}>{plotStage==='collecting'?'אוסף נתוני GovMap. אם מוצגות כמה חלקות, בחרו את החלקה במפה.':plotStage==='running'?'נתוני GovMap התקבלו. המודל יוצר את תיאור החלקה…':plotStage==='succeeded'?'תיאור החלקה מוכן':'יצירת תיאור החלקה הופסקה.'}</CliActivity><PlotProgress phase={plotStage} mode="api"/></>}
     {isPlot&&map.collecting&&<button type="button" className="secondary" onClick={()=>map.cancel('האיסוף בוטל. הבקשה לא נשלחה לסוכן.')}>ביטול איסוף</button>}
     {busy&&!isPlot&&<p role="status">הבקשה נשלחה לעיבוד.</p>}{error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status" className="success">{notice}</p>}
-    {isPlot&&map.address&&<div inert={busy&&!map.collecting}><GovMapPanel key={map.version} address={map.address} mode="plot" onPlotData={map.receive} onError={message=>{setError(message);map.cancel(message);}}/></div>}
+    {isPlot&&map.address&&<div inert={busy&&!map.collecting}><GovMapPanel key={map.version} address={map.address} mode="plot" reveal onPlotData={map.receive} onError={message=>{setError(message);map.cancel(message);}}/></div>}
     {output&&<Report text={output}/>}
     {!isPlot&&mapAddress&&<GovMapPanel address={mapAddress}/>}
   </>;

@@ -8,6 +8,7 @@ const obj = (v: unknown): Obj => v !== null && typeof v === 'object' && !Array.i
 const str = (v: unknown) => typeof v === 'string' ? v.trim() : '';
 const num = (v: unknown): number | null => (typeof v === 'number' || typeof v === 'string' && v.trim() !== '') && Number.isFinite(Number(v)) ? Number(v) : null;
 const norm = (v: unknown) => String(v ?? '').normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '');
+const streetWords = (v: unknown) => String(v ?? '').normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/).sort().join(' ');
 export type OverSubject = { city: string; street: string; house: string; address: string; area: number; rooms: number; propertyType: string; yearBuilt: number | null; floor: string; description: string; startDate: string; endDate: string; radiusMeters: number };
 type Point = { lat: number; lon: number };
 export type OverSale = Transaction & { yearBuilt: number | null; sameParcel: boolean; neighbourhood: string | null; point: Point; rightsFraction: number; declaredAmount: number; parcelKey: string };
@@ -102,31 +103,46 @@ export async function collectOverTransactions(value: unknown, deps: { fetcher?: 
     return result;
   };
   const lookup = await get('/api/nadlan/address', { city: subject.city, street: subject.street, number: subject.house, deals: false, stat_area: false });
+  // The address register uses current locality names while parcel identities can
+  // retain historic names (e.g. Yehud). Join the source's explicit parcel key and
+  // locality code; never accept the first fuzzy result or guess a city alias.
+  const registered = (Array.isArray(lookup.addresses) ? lookup.addresses.map(obj) : []).filter(a =>
+    norm(a.settlement_name) === norm(subject.city) && streetWords(a.street_name) === streetWords(subject.street) &&
+    norm(`${a.house_num ?? ''}${a.house_suffix ?? ''}`) === norm(subject.house) &&
+    a.parcel_match === 'pip' && point(a) && (num(a.settlement_code) ?? 0) > 0);
+  const linked = (value: unknown) => {
+    const r = obj(value), i = obj(r.identity), addresses = Array.isArray(i.addresses) ? i.addresses.map(obj) : [];
+    return registered.filter(a => a.parcel_key === r.parcel_key && String(a.settlement_code) === String(obj(i.settlement).code) &&
+      addresses.some(b => norm(b.street) === norm(a.street_name) && norm(`${b.house ?? ''}${b.suffix ?? ''}`) === norm(subject.house)));
+  };
   const matches = (lookup.data as unknown[]).filter(v => {
     const i = obj(obj(v).identity);
-    return norm(obj(i.settlement).name) === norm(subject.city) && Array.isArray(i.addresses) && i.addresses.some(a => { const r = obj(a); return norm(r.street) === norm(subject.street) && norm(`${r.house ?? ''}${r.suffix ?? ''}`) === norm(subject.house); });
+    return linked(v).length > 0 || norm(obj(i.settlement).name) === norm(subject.city) && Array.isArray(i.addresses) && i.addresses.some(a => { const r = obj(a); return norm(r.street) === norm(subject.street) && norm(`${r.house ?? ''}${r.suffix ?? ''}`) === norm(subject.house); });
   });
-  check(matches.length === 1, 'לא נמצאה חלקה יחידה לכתובת. בדקו יישוב, רחוב ומספר בית; לא בוצע ניחוש מיקום.');
+  check(matches.length > 0, 'לא נמצאה התאמה מאומתת לכתובת. בדקו יישוב, רחוב ומספר בית; לא בוצע ניחוש מיקום.');
+  check(matches.length === 1, 'נמצאו כמה חלקות לכתובת ולא חלקה יחידה. יש לדייק את הכתובת; לא נבחרה אוטומטית החלקה הראשונה.');
   const target = parcel(matches[0]); if (!target) throw new Problem(400, 'המאגר אינו מספק מיקום תקין לנכס.');
   const addresses = obj(obj(matches[0]).identity).addresses as unknown[];
   const matchedAddress = addresses.map(obj).find(a => norm(a.street) === norm(subject.street) && norm(`${a.house ?? ''}${a.suffix ?? ''}`) === norm(subject.house));
-  const origin = point(matchedAddress) ?? target.point;
+  const verifiedAddresses = linked(matches[0]);
+  const origin = (verifiedAddresses.length === 1 ? point(verifiedAddresses[0]) : null) ?? point(matchedAddress) ?? target.point;
+  const sourceSubject = { ...subject, city: target.city };
   const nearby = await get('/api/nadlan/point', { ...origin, radius_m: subject.radiusMeters, limit: 200, deals: false, stat_area: false });
   const parcels = [matches[0], ...(nearby.data as unknown[])];
-  const allGush = [...new Set(parcels.map(parcel).filter((p): p is Parcel => !!p && norm(p.city) === norm(subject.city) && distanceMeters(origin, p.point) <= subject.radiusMeters).map(p => p.gp.split('-')[0]))];
+  const allGush = [...new Set(parcels.map(parcel).filter((p): p is Parcel => !!p && norm(p.city) === norm(sourceSubject.city) && distanceMeters(origin, p.point) <= subject.radiusMeters).map(p => p.gp.split('-')[0]))];
   const warnings = ['מקור: עסקאות רשות המסים בארכיון over.org.il; הדיווחים עשויים להתעדכן באיחור.', 'מרחקים בקירוב למרכז החלקה; אותה חלקה אינה בהכרח אותו בניין. אין אימות זכויות או התאמת מחירים למדד.', 'נבחרות עסקאות מגורים במלוא הזכויות, במיקום ובתקופה המבוקשים. שנת בנייה, שטח, חדרים וסוג נכס משמשים לדירוג ולהתאמות ולא לפסילה. התאמות מחיר הן הנחות לבדיקה; סבסוד אינו מזוהה באופן מלא.'];
   if ((nearby.data as unknown[]).length >= 200) warnings.push('מאגר המיקום הוגבל ל־200 חלקות: התוצאות הן הדומות ביותר במדגם שנאסף, ולא בהכרח בכלל האזור.');
   if (allGush.length > 6) warnings.push('האיסוף הוגבל לשישה גושים; כיסוי האזור חלקי.');
   const raw: unknown[] = [];
   for (const gush of allGush.slice(0, 6)) {
     for (let offset = 0; offset < 400; offset += 200) {
-      const data = await get('/api/deals/search', { gush, settlement: subject.city, date_from: subject.startDate, date_to: subject.endDate, sort: 'date_desc', limit: 200, offset });
+      const data = await get('/api/deals/search', { gush, settlement: sourceSubject.city, date_from: subject.startDate, date_to: subject.endDate, sort: 'date_desc', limit: 200, offset });
       raw.push(...data.data as unknown[]);
       if ((data.data as unknown[]).length < 200) break;
       if (offset === 200 && (num(data.total) === null || Number(data.total) > 400 || data.total_capped)) warnings.push(`גוש ${gush}: האיסוף הוגבל ל־400 רשומות; המדגם חלקי.`);
     }
   }
-  const ranked = selectOverSales(raw, parcels, subject, origin, target.key);
+  const ranked = selectOverSales(raw, parcels, sourceSubject, origin, target.key);
   if (ranked.length < 10) warnings.push(`נמצאו רק ${ranked.length} עסקאות מגורים תקינות במדגם שנאסף לתקופה ולרדיוס המבוקשים.`);
   return { kind: 'over', version: 2, subject, query: resolveQuery({ ...subject, limit: 10, dealType: 'both' }, {}, now), selected: ranked.slice(0, 10), retrievedAt: now.toISOString(), candidateCount: ranked.length, warnings, point: origin, parcelKey: target.key };
 }

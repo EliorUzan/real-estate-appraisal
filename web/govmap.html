@@ -14,6 +14,10 @@
       </dl>
       <p id="map-status" role="status">טוען את המפה…</p>
       <button id="retry" type="button" hidden>ניסיון נוסף</button>
+      <div id="map-shell" aria-busy="true">
+        <div id="govmap" aria-label="מפת הכתובת עם שכבות גושים וחלקות"></div>
+        <div id="map-placeholder">המפה עדיין אינה ממוקדת בכתובת המבוקשת.</div>
+      </div>
       <section id="plot-section" hidden aria-label="נתוני תיאור החלקה">
         <h3 id="evidence-heading">נתוני החלקה מ־GovMap</h3>
         <label>גוש וחלקה שאותרו<select id="plot-parcel"><option value="">ממתין לאיתור</option></select></label>
@@ -40,10 +44,6 @@
         <small>השטח הוא נתון מיפוי. לציון שטח רשום יש לצרף נסח. נתון שלא הוחזר מוצג כחסר.</small>
         </details>
       </section>
-      <div id="map-shell" aria-busy="true">
-        <div id="govmap" aria-label="מפת הכתובת עם שכבות גושים וחלקות"></div>
-        <div id="map-placeholder">המפה עדיין אינה ממוקדת בכתובת המבוקשת.</div>
-      </div>
       <p class="source">מקור: GovMap · שכבות גושים וחלקות</p>
     </main>
     <script type="module" src="/src/govmap-frame.ts"></script>

@@ -87,6 +87,33 @@ test('ambiguous lookup and source failures stop before any model request',async(
  await assert.rejects(collectOverTransactions(input,{now,fetcher:async()=>new Response('',{status:429})}),/429/);
  await assert.rejects(collectOverTransactions(input,{now,fetcher:async()=>response({data:'broken'})}),/מבנה/);
 });
+
+// Public /api/nadlan/address shape observed for the reported address on 27 Oct.
+const yehudInput={...input,city:'יהוד-מונוסון',street:'דוד מרכוס',house:'20'};
+const yehudParcel={parcel_key:'6685-0-154',identity:{gush:6685,helka:154,point:{lat:32.03497115636164,lon:34.889106348102736},settlement:{code:9400,name:'יהוד'},addresses:[{street:'מרכוס דוד',house:20,suffix:null,lat:32.03492046965214,lon:34.88921261256602}]}};
+const yehudAddress={settlement_code:9400,settlement_name:'יהוד-מונוסון',street_name:'מרכוס דוד',house_num:20,house_suffix:null,parcel_key:'6685-0-154',parcel_match:'pip',lat:32.03492046965214,lon:34.88921261256602};
+test('verified address-register join resolves Yehud and reversed street names through sale collection',async()=>{
+ const urls=[];
+ const result=await collectOverTransactions(yehudInput,{now,fetcher:async url=>{
+  urls.push(new URL(url));
+  if(url.includes('/address?'))return response({data:[yehudParcel],addresses:[yehudAddress]});
+  if(url.includes('/point?'))return response({data:[yehudParcel]});
+  return response({data:[sale(1,{gush:'6685',helka:'154',settlement:'יהוד',settlement_code:'9400'})]});
+ }});
+ assert.equal(result.parcelKey,'6685-0-154');assert.equal(result.selected.length,1);
+ assert.equal(result.subject.city,'יהוד-מונוסון');assert.equal(result.subject.street,'דוד מרכוס');
+ assert.deepEqual(result.point,{lat:yehudAddress.lat,lon:yehudAddress.lon});
+ assert.equal(urls[2].searchParams.get('settlement'),'יהוד');
+});
+test('address-register join rejects wrong city, partial street, house, locality code and parcel links',async()=>{
+ for(const patch of [{settlement_name:'רמת גן'},{street_name:'דוד'},{house_num:21},{house_suffix:'א'},{settlement_code:8600},{parcel_key:'6685-0-155'},{parcel_match:'nearest'},{lat:null}]){
+  let calls=0;
+  await assert.rejects(collectOverTransactions(yehudInput,{now,fetcher:async()=>{calls++;return response({data:[yehudParcel],addresses:[{...yehudAddress,...patch}]});}}),/לא נמצאה התאמה מאומתת/);
+  assert.equal(calls,1,'mismatches stop before collecting sales');
+ }
+ const second={...yehudParcel,parcel_key:'6685-0-155',identity:{...yehudParcel.identity,helka:155}};
+ await assert.rejects(collectOverTransactions(yehudInput,{now,fetcher:async()=>response({data:[yehudParcel,second],addresses:[yehudAddress,{...yehudAddress,parcel_key:second.parcel_key}]})}),/נמצאו כמה חלקות/);
+});
 const selected=selectOverSales([sale(1),sale(2),sale(3)],[parcel()],subject,origin,'6145-0-1203');
 const valid=()=>({assessments:selected.map(r=>({id:r.id,accepted:true,similarity:85,reason:'שטח וחדרים תואמים; הקומה אינה ידועה',amount:1})),valuation:{status:'indicative',low:2200000,high:2600000,estimate:2400000,currency:'ILS',transactionIds:selected.map(r=>r.id),explanation:'מחיר למ״ר היסטורי של 30,000 ₪ כפול 80 מ״ר, עם אי ודאות לגבי מצב ומועד.',assumptions:['אין מידע מאומת על קומה או מצב']}});
 test('Claude reviews every candidate once; prices remain source facts and the validated range survives job/history serialization',async()=>{

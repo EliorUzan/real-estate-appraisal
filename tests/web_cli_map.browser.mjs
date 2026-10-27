@@ -7,6 +7,7 @@ import {createRequire} from 'node:module';
 import {createServer} from 'node:http';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
+import {readFileSync} from 'node:fs';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const require=createRequire(new URL('../web/package.json',import.meta.url));
 const {build}=require('esbuild');
@@ -18,15 +19,20 @@ before(async()=>{
   'use-cli-submission':`import {useState} from 'react'; export function useCliSubmission(){const [busy,setBusy]=useState(false);return {busy,identity:busy?{}:null,submit:async body=>{window.submissions.push(structuredClone(body));setBusy(true);await new Promise(()=>{});}};}`,
   'CliAccountControls':`export function CliAccountControls(){return null;}`,
   'CliSubmissionStatus':`export function CliSubmissionStatus(){return null;}`,
+  'supabase':`export const supabase={};`,
+  'edge':`export async function api(action,body){window.apiCalls.push({action,body:structuredClone(body)});return {job:{status:'succeeded',output_text:'Test plot report'}};} export const edgeApi=api;`,
  };
- const app=await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {CliRequest} from './src/components/CliRequest';window.submissions=[];createRoot(document.getElementById('root')).render(<CliRequest userId='owner' workspaces={['workspace']} onSettings={()=>{}} sectionId={location.search.includes('plot')?'plot_description':'environment_description'}/>);`,resolveDir:resolve(root,'web'),loader:'tsx'},bundle:true,write:false,format:'esm',jsx:'automatic',plugins:[{name:'mock-account-and-network-boundary',setup(b){b.onResolve({filter:/use-cli-account$|use-cli-submission$|CliAccountControls$|CliSubmissionStatus$/},args=>({path:args.path.split('/').pop(),namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:mockModules[args.path],loader:'js',resolveDir:resolve(root,'web')}));}}]});
+ const app=await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {CliRequest} from './src/components/CliRequest';import {SectionRequest} from './src/App';window.submissions=[];window.apiCalls=[];createRoot(document.getElementById('root')).render(location.search.includes('api')?<SectionRequest section='plot_description' data={{defaultProvider:'openai',settings:[{provider_id:'openai',model_id:'gpt-4.1',configured:true}],members:[{workspace_id:'workspace'}],prompts:[]}} onSettings={()=>{}}/>:<CliRequest userId='owner' workspaces={['workspace']} onSettings={()=>{}} sectionId={location.search.includes('plot')?'plot_description':'environment_description'}/>);`,resolveDir:resolve(root,'web'),loader:'tsx'},bundle:true,write:false,format:'esm',jsx:'automatic',plugins:[{name:'mock-account-and-network-boundary',setup(b){b.onResolve({filter:/use-cli-account$|use-cli-submission$|CliAccountControls$|CliSubmissionStatus$|\/supabase$|\/edge$/},args=>({path:args.path.split('/').pop(),namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:mockModules[args.path],loader:'js',resolveDir:resolve(root,'web')}));}}]});
  const addresses=await build({entryPoints:[resolve(root,'web/src/govmap-address-frame.ts')],bundle:true,write:false,format:'esm',define:{'import.meta.env.VITE_GOVMAP_TOKEN':'"public-test-token"'}});
+ const mapFixture=readFileSync(resolve(root,'web/govmap.html'),'utf8')
+  .replace('</head>',`<style>${readFileSync(resolve(root,'web/src/govmap-frame.css'),'utf8')}</style></head>`)
+  .replace('<script type="module" src="/src/govmap-frame.ts"></script>',`<script>document.getElementById('plot-section').hidden=false;document.getElementById('govmap').textContent='Map fixture';</script>`);
  server=createServer((req,res)=>{
   res.setHeader('Content-Type',req.url.endsWith('.js')?'text/javascript':'text/html; charset=utf-8');
   if(req.url==='/app.js')res.end(app.outputFiles[0].text);
   else if(req.url==='/addresses.js')res.end(addresses.outputFiles[0].text);
   else if(req.url==='/govmap-address.html')res.end('<script type="module" src="/addresses.js"></script>');
-  else if(req.url==='/govmap.html')res.end('<p>Map fixture</p>');
+  else if(req.url==='/govmap.html')res.end(mapFixture);
   else res.end('<html dir="rtl"><div id="root"></div><script type="module" src="/app.js"></script></html>');
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));base=`http://127.0.0.1:${server.address().port}`;
@@ -44,8 +50,8 @@ async function pageFor(t,mode='empty',plot=false,address='דוד מרכוס 20 �
   if(url==='https://www.govmap.gov.il/govmap/api/govmap.api.js')return route.fulfill({contentType:'text/javascript',body:`window.govmap={search:async p=>{window.searchParams=p;${mode==='fail'?'throw new Error("GovMap unavailable");':mode==='hang'?'return new Promise(()=>{});':mode==='bar-yochai'?`return {results:p.layers?[]:[{type:'street',text:'בר יוחאי רמת גן'},{id:'address|ADDR|72888186|בר יוחאי|8|רמת-גן',type:'address',text:'בר יוחאי 8 רמת-גן',originalText:'בר יוחאי 8 רמת גן'}]};`:`return {results:${mode==='results'?JSON.stringify([{type:'address',text:'דוד מרכוס 20 יהוד',originalText:'דוד מרכוס 20 יהוד-מונוסון'},{type:'street',text:'דוד מרכוס יהוד'}]):'[]'}};`}}};`});
   return route.abort();
  });
- await page.goto(base+(plot?'/?plot':'/'));
- await page.getByRole('combobox').fill(address);
+ await page.goto(base+(plot==='api'?'/?plot&api':plot?'/?plot':'/'));
+ await page.getByRole('combobox',{name:'כתובת הנכס (חובה)',exact:true}).fill(address);
  return page;
 }
 const send=page=>page.getByRole('button',{name:'שליחה לסוכן CLI',exact:true}).click();
@@ -56,6 +62,31 @@ async function mapMessage(page,type,data){
  await frame.evaluate(({type,data})=>parent.postMessage({type,address:new URLSearchParams(location.hash.slice(1)).get('address'),...(type==='plot-evidence'?{data}:{message:'GovMap did not find the address'})},location.origin),{type,data});
 }
 const evidence=address=>({address,retrievedAt:new Date().toISOString(),source:'GovMap PARCEL_ALL',gush:'6685',parcel:'154',cadastralArea:100,borders:[],warnings:[],spatial:null,rawGovMapResponses:[]});
+
+test('API plot uses canonical autocomplete, reveals its map and waits for fresh evidence before generation',async t=>{
+ const page=await pageFor(t,'results','api');
+ const input=page.getByRole('combobox',{name:'כתובת הנכס (חובה)',exact:true});
+ await page.getByRole('option',{name:'דוד מרכוס 20 יהוד-מונוסון',exact:true}).waitFor();
+ await input.press('ArrowDown');await input.press('Enter');
+ assert.equal(await input.inputValue(),'דוד מרכוס 20 יהוד-מונוסון');
+ await mapMessage(page,'plot-evidence',evidence('דוד מרכוס 20 יהוד-מונוסון'));
+ assert.equal(await page.evaluate(()=>apiCalls.length),0,'selecting an address does not call AI');
+ const box=await page.locator('.govmap-frame').boundingBox();
+ assert.ok(box&&box.y<page.viewportSize().height&&box.y+box.height>0,'map is revealed');
+ const canvas=await page.locator('.govmap-frame').contentFrame().locator('#govmap').boundingBox();
+ assert.ok(canvas&&canvas.y<page.viewportSize().height,'GovMap canvas is visible before the parcel details');
+ await input.fill('כתובת אחרת 10');
+ assert.equal(await page.locator('.govmap-frame').count(),0,'editing removes stale evidence');
+ await page.getByRole('button',{name:'אחזור נתוני GovMap ויצירת תיאור חלקה',exact:true}).click();
+ await page.getByRole('button',{name:'ביטול איסוף',exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>apiCalls.length),0);
+ await mapMessage(page,'plot-evidence',evidence('כתובת אחרת 10'));
+ await page.getByRole('textbox',{name:'טיוטת הדוח',exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>apiCalls.length),1);
+ const call=await page.evaluate(()=>apiCalls[0]);
+ assert.equal(call.action,'generate');assert.equal(call.body.address,'כתובת אחרת 10');
+ assert.equal(JSON.parse(call.body.plotEvidence).parcel,'154');
+});
 
 test('failed suggestions and failed map lookup do not block CLI submission',async t=>{
  const page=await pageFor(t,'fail');

@@ -2,6 +2,8 @@
 
 Last consolidated: **15 October 2026**, after commit `fe3a5da`.
 
+**27 October plot/transactions follow-up:** API plot now shares CLI autocomplete and reveals the map canvas before long parcel details. The transactions lookup for דוד מרכוס 20 יהוד-מונוסון exposed a verified address-register/parcel-name mismatch, corrected without relaxing true ambiguity checks. See [findings, tests and release acceptance](PLOT_AUTOCOMPLETE_ADDRESS_FIX.md).
+
 **27 October update:** Environment CLI submissions with GovMap evidence exposed an old plot-only database constraint. The narrowly scoped migration is now deployed; see [the incident and verification record](CLI_ENVIRONMENT_EVIDENCE_FIX.md). The original request was rejected before native execution. This supersedes the earlier assumption that the environment evidence path required no schema change.
 
 **27 October frontend follow-up:** Environment CLI submission no longer waits for GovMap. Ready, fresh matching evidence is optional; failed or pending lookups cannot block the CLI. Live testing reproduced false empty suggestions for Bar Yochai 8, Ramat Gan. Correction `e42a30a` removes the unverified `layers: ['address']` search filter and fixes the misleading empty-results message. `ab8d580` also reveals explicitly requested CLI maps to allow render-dependent initialization. The user authorized deployment; **production autocomplete → keyboard selection → map → ready evidence now passes without retry**, with block 6145 / parcel 1203, in deployment `dpl_EkAALBa9ySdvTDMW2aqQoiWvkYbF`. See [behavior and regression verification](CLI_GOVMAP_OPTIONAL_LOOKUP.md).
