@@ -34,6 +34,10 @@ form .plot-map-only:hover { background:#e2f0ed; }
 .prompt-editor textarea { font-family:Consolas,monospace; line-height:1.7; }
 .prompt-editor textarea:read-only { background:#f6f8fa; }
 .request-fields { display:grid; gap:18px; border:0; padding:0; margin:0; min-width:0; }
+.govmap-address-input { display:grid; gap:6px; min-width:0; }
+.govmap-address-options { list-style:none; padding:0; margin:0; border:1px solid #aebfc4; border-radius:6px; overflow:hidden; }
+.govmap-address-options [role=option] { padding:10px; cursor:pointer; overflow-wrap:anywhere; }
+.govmap-address-options [aria-selected=true] { background:#e2f0ed; color:#0f5b4e; outline:2px solid #1f7a68; outline-offset:-2px; }
 .optional-text-field > summary { display:flex; align-items:center; gap:8px; list-style:none; color:#263a41; }
 .optional-text-field > summary::-webkit-details-marker { display:none; }
 .optional-text-field > summary svg { flex-shrink:0; }

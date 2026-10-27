@@ -4,6 +4,8 @@ Last consolidated: **15 October 2026**, after commit `fe3a5da`.
 
 **27 October update:** Environment CLI submissions with GovMap evidence exposed an old plot-only database constraint. The narrowly scoped migration is now deployed; see [the incident and verification record](CLI_ENVIRONMENT_EVIDENCE_FIX.md). The original request was rejected before native execution. This supersedes the earlier assumption that the environment evidence path required no schema change.
 
+**27 October frontend follow-up (awaiting owner deployment):** Environment CLI submission no longer waits for GovMap. Ready, fresh matching evidence is optional; failed or pending lookups cannot block the CLI. Address suggestions use GovMap's standalone browser SDK search, with explicit selection of the canonical address. See [behavior and regression verification](CLI_GOVMAP_OPTIONAL_LOOKUP.md).
+
 Purpose: give another engineering agent enough context to maintain, reproduce, and extend the personal Antigravity/Claude integration without repeating its implementation and diagnostic mistakes. This is a guide to the existing application, not a claim that every planned feature is deployed or that the experiment is approved for general customer hosting.
 
 This document records the last verified checkpoint. It does **not** make a fresh assertion about an asleep Codespace, account allowance, deployed frontend revision, or current provider terms. Recheck those before acting. No credentials, authorization codes, or complete private configuration files belong in this document.
@@ -31,7 +33,7 @@ This document records the last verified checkpoint. It does **not** make a fresh
 | Active research profile | `web-search-v1` | `claude-web-search-maps-demo-v1` |
 | Web search | Native `search_web`, verified with real results | Native `WebSearch`, verified with real results |
 | Google Maps | **Not activated/verified** | Official HTTP MCP; live native and deployed-app lookup verified |
-| GovMap | Evidence can be supplied by the app's source collection paths | Same evidence mechanism; environment extension committed and backend deployed, full live collection-to-Claude acceptance still pending |
+| GovMap | Evidence can be supplied by the app's source collection paths | Live collection-to-Claude acceptance verified 27 October; optional lookup/autocomplete frontend follow-up awaits deployment |
 | Fresh browser-only onboarding | Implemented components/protocol infrastructure, not enabled or accepted end to end | Supervised native login verified; no completed Claude browser-only wizard |
 | Full environment reports | Earlier successes exist; later long runs failed under second account and are not fully diagnosed | Successful deployed reports and Maps lookup; account quota can independently block requests |
 | Session/quota display | Structured Google quota observed; dedicated mapping still outstanding | Observed native session-limit response now maps to `QUOTA_EXCEEDED` |
@@ -108,6 +110,7 @@ All paths below are relative to the repository root.
 | Maps credential/catalog staging | `src/cli_gateway/maps_config.py`, `deploy/cli-gateway/configure-maps.py` |
 | GovMap embed and parsing | `web/govmap.html`, `web/src/govmap-frame.ts`, `web/src/components/GovMapPanel.tsx`, `web/src/lib/govmap.ts`, `govmap-responses.ts` |
 | Environment GovMap projection | `web/src/lib/cli-govmap-evidence.ts`, `supabase/functions/appraisal/cli-evidence.ts` |
+| Optional GovMap address suggestions | `web/src/components/GovMapAddressInput.tsx`, `web/govmap-address.html`, `web/src/govmap-address-frame.ts`, `web/src/lib/govmap-address.ts` |
 | Comparables | `NearbyTransactions.tsx`, `AutomaticComparables.tsx`, `ImportedTransactions.tsx`; corresponding appraisal collection/validation modules |
 | Diagnostics | `deploy/cli-gateway/diagnose-claude.py`, `diagnose-search.py`; fixed counters in `runner.py` and adapter |
 | Build/provenance | `deploy/cli-gateway/releases.json`, `build-images.py`, `Dockerfile.provider`, `Dockerfile.antigravity`, `watchdog.py` |
@@ -364,10 +367,10 @@ GovMap uses an intentionally browser-visible domain-restricted token. Its role i
 ### What the agent receives
 
 - Plot mode collects parcel identity, geometry/spatial summaries, available layers, neighboring parcels and missing-data warnings. Geometry supports dimensional WKT such as `MULTIPOLYGON Z`; zero Z values do not prove measured elevation or flat terrain.
-- Environment CLI can request this same collection before submission, and shows the map below the response. `environmentGovMap` projects facts/warnings and removes redundant geometry copies and raw transport diagnostics.
+- Environment CLI can collect observations by selecting an address suggestion or using the map button. Submission immediately freezes only already-ready matching evidence when enabled; it never waits for collection. `environmentGovMap` projects facts/warnings and removes redundant geometry copies and raw transport diagnostics. This behavior awaits deployment of the 27 October frontend follow-up.
 - The environment evidence says `kind=govmap_environment`, `collectionMethod=domain_browser_sdk`, and retains address/retrieval time/source/parcel provenance. The backend explicitly labels it browser-collected, not independently server-verified.
 - Frontend cached evidence must match the trimmed address and be under 25 minutes old; the backend independently checks address, cadastral identifiers, source and a 30-minute freshness window. Collection has a three-minute deadline. Cancel/navigation/failed or ambiguous lookup must not silently launch the AI.
-- An environment request may opt out of GovMap collection. Plot description requires matching collected parcel evidence.
+- An environment request may opt out of attaching GovMap data. Missing, failed, or pending GovMap data does not block environment submission. Plot description still requires matching collected parcel evidence.
 - GovMap cadastral area is map data, not a substitute for a registration extract. Source coverage does not establish zoning rights, slope, legal status, building condition or an exact neighborhood name.
 
 Changes in `f8b4242` added environment evidence to the local frontend and deployed appraisal backend. That does not establish the owner has deployed that frontend revision. Showing a GovMap window below a completed answer does not prove its data was included in the frozen prompt.

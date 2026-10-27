@@ -11,6 +11,7 @@ export default defineConfig({
       input: {
         app: fileURLToPath(new URL("./index.html", import.meta.url)),
         govmap: fileURLToPath(new URL("./govmap.html", import.meta.url)),
+        addresses: fileURLToPath(new URL("./govmap-address.html", import.meta.url)),
         transactions: fileURLToPath(new URL("./govmap-transactions.html", import.meta.url)),
       },
     },
