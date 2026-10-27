@@ -34,18 +34,18 @@ before(async()=>{
 });
 after(async()=>{await browser?.close();server?.closeAllConnections();await new Promise(r=>server?server.close(r):r());});
 
-async function pageFor(t,mode='empty',plot=false){
+async function pageFor(t,mode='empty',plot=false,address='דוד מרכוס 20 יהוד'){
  const context=await browser.newContext();t.after(()=>context.close());
  const page=await context.newPage();
  const errors=[];page.on('pageerror',e=>errors.push(e.message));t.after(()=>assert.deepEqual(errors,[]));
  await context.route('**/*',async route=>{
   const url=route.request().url();
   if(url.startsWith(base))return route.continue();
-  if(url==='https://www.govmap.gov.il/govmap/api/govmap.api.js')return route.fulfill({contentType:'text/javascript',body:`window.govmap={search:async p=>{window.searchParams=p;${mode==='fail'?'throw new Error("GovMap unavailable");':mode==='hang'?'return new Promise(()=>{});':`return {results:${mode==='results'?JSON.stringify([{type:'address',text:'דוד מרכוס 20 יהוד',originalText:'דוד מרכוס 20 יהוד-מונוסון'},{type:'street',text:'דוד מרכוס יהוד'}]):'[]'}};`}}};`});
+  if(url==='https://www.govmap.gov.il/govmap/api/govmap.api.js')return route.fulfill({contentType:'text/javascript',body:`window.govmap={search:async p=>{window.searchParams=p;${mode==='fail'?'throw new Error("GovMap unavailable");':mode==='hang'?'return new Promise(()=>{});':mode==='bar-yochai'?`return {results:p.layers?[]:[{type:'street',text:'בר יוחאי רמת גן'},{id:'address|ADDR|72888186|בר יוחאי|8|רמת-גן',type:'address',text:'בר יוחאי 8 רמת-גן',originalText:'בר יוחאי 8 רמת גן'}]};`:`return {results:${mode==='results'?JSON.stringify([{type:'address',text:'דוד מרכוס 20 יהוד',originalText:'דוד מרכוס 20 יהוד-מונוסון'},{type:'street',text:'דוד מרכוס יהוד'}]):'[]'}};`}}};`});
   return route.abort();
  });
  await page.goto(base+(plot?'/?plot':'/'));
- await page.getByRole('combobox').fill('דוד מרכוס 20 יהוד');
+ await page.getByRole('combobox').fill(address);
  return page;
 }
 const send=page=>page.getByRole('button',{name:'שליחה לסוכן CLI',exact:true}).click();
@@ -68,6 +68,23 @@ test('failed suggestions and failed map lookup do not block CLI submission',asyn
  assert.equal(await page.evaluate(()=>submissions[0].address),'דוד מרכוס 20 יהוד');
 });
 
+test('reported Bar Yochai address is suggested without the invalid API layer filter',async t=>{
+ const page=await pageFor(t,'bar-yochai',false,'בר יוחאי 8, רמת גן');
+ await page.getByRole('option',{name:'בר יוחאי 8 רמת גן',exact:true}).click();
+ assert.equal(await page.getByRole('combobox').inputValue(),'בר יוחאי 8 רמת גן');
+ await mapMessage(page,'plot-evidence',{...evidence('בר יוחאי 8 רמת גן'),gush:'6145',parcel:'1203'});
+ await page.getByText('נתוני GovMap מוכנים ויצורפו לבקשה.',{exact:true}).waitFor();
+ await send(page);
+ assert.equal(await page.evaluate(()=>submissions[0].evidence.parcel),'1203');
+});
+
+test('empty suggestions do not claim the address is absent and still allow submission',async t=>{
+ const page=await pageFor(t,'empty');
+ await page.getByText('לא התקבלו הצעות כתובת.',{exact:false}).waitFor();
+ assert.equal(await page.getByText('לא נמצאה כתובת ב־GovMap.',{exact:false}).count(),0);
+ await send(page);assert.equal(await page.evaluate(()=>submissions.length),1);
+});
+
 test('hanging map lookup sends immediately; late evidence never changes or replays the request',async t=>{
  const page=await pageFor(t,'hang');
  await page.getByRole('button',{name:'הצג מפה וגוש חלקה',exact:true}).click();
@@ -84,7 +101,7 @@ test('keyboard selects canonical suggestion without submitting and ready evidenc
  await page.getByRole('option').waitFor();
  assert.equal(await page.getByRole('option').count(),1);
  const search=await page.frames().find(f=>f.url().includes('govmap-address.html')).evaluate(()=>window.searchParams);
- assert.deepEqual(search.layers,['address']);assert.equal(search.isAccurate,false);
+ assert.equal(search.layers,undefined);assert.equal(search.isAccurate,false);
  await page.getByRole('combobox').press('ArrowDown');await page.getByRole('combobox').press('Enter');
  assert.equal(await page.getByRole('combobox').inputValue(),'דוד מרכוס 20 יהוד-מונוסון');
  assert.equal(await page.evaluate(()=>submissions.length),0);

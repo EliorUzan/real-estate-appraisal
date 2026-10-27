@@ -1,6 +1,14 @@
 # Optional GovMap lookup and address suggestions
 
-27 October 2026. Frontend implementation verified locally; **awaiting owner Vercel deployment**. No backend migration, worker restart, Git push, or live inference was performed for this follow-up.
+27 October 2026. The initial implementation was subsequently deployed by the owner and its live autocomplete failure was reproduced. **The correction described below awaits deployment.** No backend migration, worker restart, Git push, or live inference was performed for this correction.
+
+## Bar Yochai autocomplete regression
+
+The user reported that `בר יוחאי 8, רמת גן` was incorrectly shown as absent. Verified in the deployed app's Chrome network panel: SDK `search` sent `layers: ['address']` to `/api/search-service/api-search` and received HTTP 200 with `{"resultsCount":0,"results":[],"aggregations":[]}`. In contrast, the deployed map's independent geocoder located exactly that input and returned block **6145**, parcel **1203**. GovMap's public autocomplete also returned canonical `originalText: בר יוחאי 8 רמת גן` with `id: address|ADDR|72888186|בר יוחאי|8|רמת-גן`.
+
+The correction removes the unverified API layer filter and filters `type === 'address'` locally, preserving explicit selection. The search limit is 20 before the parser reduces it to eight address suggestions, allowing mixed street/city results without prematurely exhausting the list. Empty suggestions now explicitly say they do not establish that an address is absent and point to the separate map button. The earlier assumption below that this SDK filter was supported was incorrect; the SDK forwards the object unchanged, and its internal use of that filter is not evidence of successful live behavior.
+
+Seven isolated browser regressions and 22 Node tests pass, including the reported address and empty-suggestions message; production build and full frontend lint pass. Live verification of the **corrected suggestions request** is still required on the approved production domain. Localhost returns `401 Invalid API token or unauthorized domain` with and without the filter; no Origin header spoofing or proxy was used. The map success alone does not establish that corrected autocomplete works.
 
 ## Cause and behavior
 
@@ -12,7 +20,7 @@ The CLI address field offers debounced GovMap suggestions after three characters
 
 ## SDK and trust boundaries
 
-Inspected the current [official GovMap SDK](https://www.govmap.gov.il/govmap/api/govmap.api.js): `search` is standalone, uses a domain-bound `apiKey`, and does not need `createMap` or `geocode`. It supports `layers: ['address']`; its shared search debouncer is isolated in a dedicated document. The new `govmap-address.html` Vite entry loads the SDK and performs one bounded query per debounced input. The address travels in the URL fragment, not hosting request logs. Messages require matching origin, source iframe, and query. Old frames are removed when input changes, focus leaves, or the form becomes inactive.
+Inspected the current [official GovMap SDK](https://www.govmap.gov.il/govmap/api/govmap.api.js): `search` is standalone, uses a domain-bound `apiKey`, and does not need `createMap` or `geocode`. Its shared search debouncer is isolated in a dedicated document. The `govmap-address.html` Vite entry loads the SDK and performs one bounded query per debounced input, without a server-side layer filter. The address travels in the URL fragment, not hosting request logs. Messages require matching origin, source iframe, and query. Old frames are removed when input changes, focus leaves, or the form becomes inactive.
 
 The parser accepts only address results, prefers canonical `originalText` over potentially abbreviated/highlighted `text`, deduplicates, bounds labels/count, and renders plain text. A read-only query of GovMap's public autocomplete returned `text: דוד מרכוס 20 יהוד` and `originalText: דוד מרכוס 20 יהוד-מונוסון`, confirming why the canonical field matters. No coordinates from search are treated as cadastral evidence. The existing domain token and backend validation remain in force; there is no origin spoofing or proxy.
 

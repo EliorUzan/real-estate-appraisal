@@ -17,3 +17,11 @@ test('GovMap labels are bounded plain text, never HTML or control characters',()
  assert.equal(govMapAddressSuggestions({results:rows}).length,8);
  assert.equal(govMapAddressSuggestions({results:rows})[0],'כתובת 0');
 });
+
+test('Bar Yochai 8 Ramat Gan survives canonical punctuation and mixed search categories',()=>{
+ const address={id:'address|ADDR|72888186|בר יוחאי|8|רמת-גן',text:'בר יוחאי 8 רמת-גן',type:'address',originalText:'בר יוחאי 8 רמת גן'};
+ assert.deepEqual(govMapAddressSuggestions({resultsCount:3,results:[{type:'settlement',text:'רמת גן'},address,{type:'street',text:'בר יוחאי רמת גן'}]}),['בר יוחאי 8 רמת גן']);
+ // Actual deployed SDK response with layers:['address']; distinguish empty
+ // suggestions from the independent map geocoder's successful exact match.
+ assert.deepEqual(govMapAddressSuggestions({resultsCount:0,results:[],aggregations:[]}),[]);
+});

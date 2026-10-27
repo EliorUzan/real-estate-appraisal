@@ -44,7 +44,7 @@ export function GovMapAddressInput({value,onChange,onSelect,active=true}:{value:
    {labels.map((label,index)=><li id={`${id}-option-${index}`} key={label} role='option' aria-selected={highlight===index}
     onMouseDown={e=>e.preventDefault()} onMouseEnter={()=>setHighlight(index)} onClick={()=>select(label)}>{label}</li>)}
   </ul>}
-  <p id={`${id}-help`} className='muted' role='status'>{current?.failed?'הצעות GovMap אינן זמינות. אפשר להמשיך עם הכתובת שהקלדתם.':current&&!open?'לא נמצאה כתובת ב־GovMap. אפשר לערוך את הכתובת או להמשיך כפי שהוקלדה.':enabled&&!current?'מחפש כתובות ב־GovMap…':'הקלידו רחוב, מספר בית ויישוב. בחירת הצעה מעדכנת את הכתובת ומציגה את המפה; אפשר גם להשאיר כתובת חופשית.'}</p>
+  <p id={`${id}-help`} className='muted' role='status'>{current?.failed?'הצעות GovMap אינן זמינות. אפשר להמשיך עם הכתובת שהקלדתם.':current&&!open?'לא התקבלו הצעות כתובת. אין בכך אישור שהכתובת אינה קיימת; אפשר לנסות את כפתור הצגת המפה או להמשיך עם הכתובת שהקלדתם.':enabled&&!current?'מחפש כתובות ב־GovMap…':'הקלידו רחוב, מספר בית ויישוב. בחירת הצעה מעדכנת את הכתובת ומציגה את המפה; אפשר גם להשאיר כתובת חופשית.'}</p>
   {enabled&&query===term&&<iframe ref={frame} key={query} hidden title='חיפוש כתובות GovMap' src={`/govmap-address.html#${new URLSearchParams({query})}`} referrerPolicy='strict-origin-when-cross-origin'/>}
  </div>;
 }

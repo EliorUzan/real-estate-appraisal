@@ -10,7 +10,11 @@ async function suggest(){
   // but does not need createMap/geocode or a rendered map. Isolate its shared
   // debouncer from the cadastral searches in the other GovMap frames.
   const api=await loadGovMap();
-  const response=await withTimeout(api.search({searchText:query,apiKey:token,language:'he',maxResults:8,isAccurate:false,layers:['address']}),12000);
+  // Do not send layers:['address']: the domain-token api-search endpoint
+  // returns an empty result for that filter, even for known valid addresses.
+  // 'address' is a result category, not a verified layer identifier for this
+  // endpoint. Filter returned categories locally in govMapAddressSuggestions.
+  const response=await withTimeout(api.search({searchText:query,apiKey:token,language:'he',maxResults:20,isAccurate:false}),12000);
   window.parent.postMessage({type:'govmap-address-results',query,labels:govMapAddressSuggestions(response)},location.origin);
  }catch{
   window.parent.postMessage({type:'govmap-address-results',query,error:true},location.origin);
