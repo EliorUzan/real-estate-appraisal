@@ -8,7 +8,7 @@
 
 ## GovMap change
 
-Environment CLI requests can collect GovMap observations through the existing same-origin SDK iframe. The 27 October frontend follow-up removes the collection prerequisite: submission immediately includes only already-ready, fresh matching observations when enabled, and otherwise proceeds without them. Choosing a canonical GovMap address suggestion or clicking the map button starts optional collection. This follow-up awaits owner frontend deployment; see [behavior and regression verification](CLI_GOVMAP_OPTIONAL_LOOKUP.md). Saved agent instructions remain unchanged.
+Environment CLI requests can collect GovMap observations through the existing same-origin SDK iframe. The deployed 27 October frontend follow-up removes the collection prerequisite: submission immediately includes only already-ready, fresh matching observations when enabled, and otherwise proceeds without them. Choosing a canonical GovMap address suggestion or clicking the map button reveals the map and starts optional collection. Corrected autocomplete and map collection were verified live for Bar Yochai 8, Ramat Gan; see [behavior and regression verification](CLI_GOVMAP_OPTIONAL_LOOKUP.md). Saved agent instructions remain unchanged.
 
 The existing plot collector supplies the cadastral match, available planning/road/building layers, neighboring-parcel observations, and warnings. Multiple parcel matches require a selection. Failed/approximate lookups stop collection with an explanation. Cancellation, leaving the page, and a three-minute collection deadline do not submit an AI request. Cached observations expire before 25 minutes; the backend independently rejects observations older than 30 minutes or for another address.
 
