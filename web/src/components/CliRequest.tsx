@@ -52,6 +52,6 @@ export function CliRequest({userId,workspaces,onSettings,active=true,sectionId='
   {plot&&map.collecting&&<PlotProgress mode="cli" phase="collecting"/>}
   <CliSubmissionStatus run={run} plot={plot}/>
   {plot&&map.address&&<div inert={run.busy}><GovMapPanel key={map.version} address={map.address} mode='plot' onPlotData={map.receive} onError={message=>{setError(message);map.cancel(message);}}/></div>}
-  {!plot&&map.address&&<GovMapPanel key={map.version} address={map.address} mode={includeMap?'plot':'map'} onPlotData={map.receive} onError={message=>{setError(message);map.cancel(message);}}/>}
+  {!plot&&map.address&&<GovMapPanel key={map.version} address={map.address} mode={includeMap?'environment':'map'} onPlotData={map.receive} onError={message=>{setError(message);map.cancel(message);}}/>}
  </>;
 }

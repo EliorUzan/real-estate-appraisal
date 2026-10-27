@@ -15,8 +15,11 @@
       <p id="map-status" role="status">טוען את המפה…</p>
       <button id="retry" type="button" hidden>ניסיון נוסף</button>
       <section id="plot-section" hidden aria-label="נתוני תיאור החלקה">
-        <h3>נתוני החלקה מ־GovMap</h3>
+        <h3 id="evidence-heading">נתוני החלקה מ־GovMap</h3>
         <label>גוש וחלקה שאותרו<select id="plot-parcel"><option value="">ממתין לאיתור</option></select></label>
+        <p id="plot-warning" role="status"></p>
+        <details id="collected-evidence" open>
+        <summary id="evidence-summary" hidden>נתוני GovMap שנאספו לתיאור הסביבה</summary>
         <dl class="plot-facts">
           <div><dt>גוש</dt><dd id="plot-gush">ממתין לאיתור</dd></div>
           <div><dt>חלקה</dt><dd id="plot-number">ממתין לאיתור</dd></div>
@@ -34,8 +37,8 @@
         </dl>
         <details><summary>קואורדינטות גבול החלקה</summary><p>נקודות הגבול המלאות מועברות לסוכן. מערכת הקואורדינטות נבדקת לפני ניתוח גיאומטרי.</p><textarea id="plot-coordinates" dir="ltr" rows="5" readonly aria-label="קואורדינטות גבול החלקה"></textarea></details>
         <details><summary>מקורות ותוצאות השכבות</summary><pre id="plot-evidence-details"></pre></details>
-        <p id="plot-warning" role="status"></p>
         <small>השטח הוא נתון מיפוי. לציון שטח רשום יש לצרף נסח. נתון שלא הוחזר מוצג כחסר.</small>
+        </details>
       </section>
       <div id="map-shell" aria-busy="true">
         <div id="govmap" aria-label="מפת הכתובת עם שכבות גושים וחלקות"></div>

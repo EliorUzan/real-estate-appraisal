@@ -1,13 +1,13 @@
 import { useEffect, useRef } from "react";
 import type { PlotAnalysisData } from "../lib/plot-description";
 
-export function GovMapPanel({ address, mode = "map", onPlotData, onError }: { address: string; mode?: "map" | "plot"; onPlotData?:(data:PlotAnalysisData|null)=>void; onError?:(message:string)=>void }) {
+export function GovMapPanel({ address, mode = "map", onPlotData, onError }: { address: string; mode?: "map" | "plot" | "environment"; onPlotData?:(data:PlotAnalysisData|null)=>void; onError?:(message:string)=>void }) {
   const frame=useRef<HTMLIFrameElement>(null);
   useEffect(()=>{
     const receive=(event:MessageEvent)=>{
       if(event.origin!==location.origin || event.source!==frame.current?.contentWindow)return;
       if(event.data?.type==="govmap-size" && event.data.address===address && Number.isFinite(event.data.height))frame.current!.style.height=`${Math.min(8000,Math.max(560,event.data.height))}px`;
-      if(mode!=="plot")return;
+      if(mode==="map")return;
       if(event.data?.type==="plot-evidence" && event.data.address===address)onPlotData?.(event.data.data);
       if(event.data?.type==="plot-evidence-error" && event.data.address===address && typeof event.data.message==='string')onError?.(event.data.message);
     };
@@ -24,7 +24,7 @@ export function GovMapPanel({ address, mode = "map", onPlotData, onError }: { ad
       className={`govmap-frame${mode === "plot" ? " plot-frame" : ""}`}
       title={`${mode === "plot" ? "תיאור החלקה ומפת GovMap" : "מפת GovMap וגוש וחלקה"} — ${address}`}
       src={`/govmap.html#${new URLSearchParams({ address, mode })}`}
-      loading={mode === 'plot' ? 'eager' : 'lazy'}
+      loading={mode === 'map' ? 'lazy' : 'eager'}
       referrerPolicy="strict-origin-when-cross-origin"
     />
   </section>;

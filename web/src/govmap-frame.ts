@@ -10,7 +10,8 @@ import "./govmap-frame.css";
 const token = import.meta.env.VITE_GOVMAP_TOKEN?.trim() || "e7ae87c1-eccb-4410-9c28-17994e01f72a";
 const params=new URLSearchParams(location.hash.slice(1));
 const address=params.get("address")?.trim()??"";
-const plotMode=params.get("mode")==="plot";
+const environmentMode=params.get("mode")==="environment";
+const plotMode=params.get("mode")==="plot" || environmentMode;
 const addressElement=document.getElementById("requested-address")!;
 const parcelElement=document.getElementById("parcels")!;
 const status=document.getElementById("map-status")!;
@@ -31,6 +32,12 @@ const publishError=(message:string)=>{if(plotMode&&parent!==window)parent.postMe
 const text=(id:string,value:string)=>{document.getElementById(id)!.textContent=value;};
 addressElement.textContent=address;
 plotSection.hidden=!plotMode;
+if(environmentMode){
+  plotSection.setAttribute("aria-label","נתוני מיפוי לתיאור הסביבה");
+  text("evidence-heading","מיפוי סביבת הנכס");
+  (document.getElementById("collected-evidence") as HTMLDetailsElement).open=false;
+  document.getElementById("evidence-summary")!.hidden=false;
+}
 retry.addEventListener("click",()=>location.reload());
 new ResizeObserver(()=>{if(parent!==window)parent.postMessage({type:"govmap-size",address,height:document.querySelector("main")!.getBoundingClientRect().height+16},location.origin);}).observe(document.querySelector("main")!);
 
