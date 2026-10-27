@@ -46,4 +46,27 @@ Owner requested the same autocomplete in תיאור החלקה and investigation
   matched the local baseline after newline normalization. Deployment changes only
   `appraisal/over-transactions.ts`; preserve JWT verification and all other files.
 
-Live deployment and final UI acceptance are recorded below after release.
+## Release
+
+- Source commit: `7ed3116333fa8865039c210fe59fbdf52cb19a43`.
+- Supabase `appraisal` deployed as active v31 with JWT verification enabled.
+  Retrieved deployed source and confirmed that only `over-transactions.ts`
+  changed and that it matches the tested local file.
+- Frontend build and full ESLint passed; the existing large-bundle warning remains.
+- Vercel production deployment: `dpl_4e3zhNJ8bkYEWSQUE9f2aAKdQyLb` (Git master).
+
+## Deployed UI acceptance
+
+Vercel reported READY and assigned the production alias
+`https://real-estate-appraisal-sage.vercel.app` to the source commit above.
+Refreshed the owner's signed-in Chrome application, selected תיאור החלקה / API,
+and typed `דוד מרכוס 20 יהוד-מונוסון`. The canonical suggestion appeared.
+ArrowDown + Enter selected it without submitting a report. The form automatically
+scrolled to the visible map canvas, which located **gush 6685, parcel 154**.
+The collector reached `האיסוף הסתיים` on the first attempt, without clicking retry
+or manually scrolling to make the map load. Optional missing-layer warnings remain
+visible as source limitations, not address failures.
+
+No paid API/CLI report was invoked by these checks. The transactions source was
+exercised directly with the fixed collector; production function source equality
+was verified after deployment. A complete new Claude valuation was not run.
