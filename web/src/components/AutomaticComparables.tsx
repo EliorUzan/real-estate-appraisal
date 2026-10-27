@@ -12,10 +12,12 @@ import type {CliProvider} from '../lib/cli-agent';
 export function AutomaticComparables({userId='',workspaces=[],onSettings,defaultCliModel,defaultCliProvider}:{userId?:string;workspaces?:string[];onSettings:()=>void;defaultCliModel?:CliModel;defaultCliProvider?:CliProvider}){
  const account=useCliAccount(true,'claude',defaultCliProvider==='claude'?defaultCliModel:undefined),run=useCliSubmission(userId,'comparable_sales'),guard=useRef(false);
  const [city,setCity]=useState(''),[street,setStreet]=useState(''),[house,setHouse]=useState('');
+ const [lookupMode,setLookupMode]=useState<'address'|'parcel'>('address');
+ const [gush,setGush]=useState(''),[parcel,setParcel]=useState(''),[gushSuffix,setGushSuffix]=useState('');
  const [area,setArea]=useState(''),[rooms,setRooms]=useState(''),[yearBuilt,setYearBuilt]=useState(''),[floor,setFloor]=useState('');
  const [propertyType,setPropertyType]=useState<string>(OVER_TYPES[0]),[description,setDescription]=useState('');
  const [radius,setRadius]=useState('500'),[startDate,setStartDate]=useState(''),[endDate,setEndDate]=useState('');
- const [workspace,setWorkspace]=useState(workspaces[0]??''),[consent,setConsent]=useState(false),[error,setError]=useState('');
+ const [workspace,setWorkspace]=useState(workspaces[0]??''),[consent,setConsent]=useState(true),[error,setError]=useState('');
  async function submit(event:FormEvent){
   event.preventDefault();if(guard.current||run.busy)return;setError('');
   try{
@@ -24,7 +26,7 @@ export function AutomaticComparables({userId='',workspaces=[],onSettings,default
    if(!workspaces.includes(workspace))throw new Error('יש לבחור צוות פעיל.');
    if(!consent)throw new Error('יש לאשר את שליחת פרטי הנכס למאגר ול־Claude.');
    if(run.identity)throw new Error('קיימת בקשה שמורה. בדקו את תוצאתה ובחרו יצירת בקשה חדשה לפני שליחה נוספת.');
-   const query=overSubject({city,street,house,area:Number(area),rooms:Number(rooms),yearBuilt:yearBuilt?Number(yearBuilt):null,floor,propertyType,description,startDate,endDate,radiusMeters:Number(radius)});
+   const query=overSubject({lookupMode,...(lookupMode==='parcel'?{gush,parcel,gushSuffix}:{city,street,house}),area:Number(area),rooms:Number(rooms),yearBuilt:yearBuilt?Number(yearBuilt):null,floor,propertyType,description,startDate,endDate,radiusMeters:Number(radius)});
    guard.current=true;
    await run.submit({schemaVersion:1,requestId:crypto.randomUUID(),connectionId:account.selected.connection.id,workspaceId:workspace,sectionId:'comparable_sales',address:query.address,example:'',additionalRequest:'',modelSelection:account.modelSelection,consent:true,evidence:{kind:'over',query}});
   }catch(e){setError(e instanceof Error?e.message:'הבקשה לא הושלמה.');}finally{guard.current=false;}
@@ -34,10 +36,18 @@ export function AutomaticComparables({userId='',workspaces=[],onSettings,default
   <p>מאתרים עסקאות אוטומטית בארכיון רשות המסים של over.org.il. אין צורך בקישור. עד עשר העסקאות המדורגות ראשונות נשלחות ל־Claude CLI לבדיקה ולהערכת טווח שווי.</p>
   <p className='muted'>נבחרות עד עשר עסקאות מגורים במיקום ובתקופה המבוקשים, לפי דמיון בשטח, חדרים, סוג נכס, גיל הבניין ומרחק. כשחסרות השוואות קרובות משתמשים גם בעסקאות פחות דומות, עם התאמות שווי מנומקות ואי־ודאות מוגברת. שנת הבנייה אינה מסננת עסקאות.</p>
   <form onSubmit={submit}><fieldset disabled={run.busy} className='request-fields'>
+   <label>חיפוש לפי<select value={lookupMode} onChange={e=>{setLookupMode(e.target.value as 'address'|'parcel');setError('');}}><option value='address'>כתובת</option><option value='parcel'>גוש וחלקה</option></select></label>
+   {lookupMode==='parcel'&&<p className='muted'>העסקאות ייאספו סביב מרכז החלקה. אין צורך בכתובת; חלקה עשויה לכלול כמה כתובות ובניינים.</p>}
    <div className='two-columns'>
+    {lookupMode==='parcel'?<>
+    <label>גוש<input required inputMode='numeric' pattern='[0-9]{1,7}' maxLength={7} value={gush} onChange={e=>setGush(e.target.value)} placeholder='6685'/></label>
+    <label>חלקה<input required inputMode='numeric' pattern='[0-9]{1,7}' maxLength={7} value={parcel} onChange={e=>setParcel(e.target.value)} placeholder='154'/></label>
+    <label>תת־גוש (רשות)<input inputMode='numeric' pattern='[0-9]{1,7}' maxLength={7} value={gushSuffix} onChange={e=>setGushSuffix(e.target.value)} aria-describedby='gush-suffix-help'/><small id='gush-suffix-help'>למקרה של כמה התאמות לגוש ולחלקה. זה אינו תת־חלקה או מספר דירה.</small></label>
+    </>:<>
     <label>יישוב<input required maxLength={100} value={city} onChange={e=>setCity(e.target.value)} placeholder='רמת גן'/></label>
     <label>רחוב<input required maxLength={120} value={street} onChange={e=>setStreet(e.target.value)} placeholder='בר יוחאי'/></label>
     <label>מספר בית<input required maxLength={10} value={house} onChange={e=>setHouse(e.target.value)} placeholder='8'/></label>
+    </>}
     <label>סוג נכס<select value={propertyType} onChange={e=>setPropertyType(e.target.value)}>{OVER_TYPES.map(t=><option key={t}>{t}</option>)}</select></label>
     <label>שטח רשום במ״ר<input type='number' min={10} max={2000} step='0.1' required value={area} onChange={e=>setArea(e.target.value)}/></label>
     <label>מספר חדרים<input type='number' min={1} max={20} step='0.5' required value={rooms} onChange={e=>setRooms(e.target.value)}/></label>
@@ -53,7 +63,7 @@ export function AutomaticComparables({userId='',workspaces=[],onSettings,default
    <div className='actions'><button type='button' className='secondary' onClick={onSettings}>ניהול חשבון Claude CLI</button><button type='button' className='secondary' disabled={account.loading} onClick={account.refresh}>רענון זמינות</button></div></CollapsibleSection>
    {account.selected&&<p role='status'>{account.wakeAllowed?'החשבון מחובר והשרת במנוחה. שליחה תפעיל אותו אוטומטית לפני הניתוח.':connectionHelp(account.selected)}</p>}
    {workspaces.length>1&&<label>צוות<select value={workspace} onChange={e=>setWorkspace(e.target.value)}>{workspaces.map(w=><option key={w}>{w}</option>)}</select></label>}
-   <label className='checkbox privacy-notice'><input type='checkbox' checked={consent} onChange={e=>setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את הכתובת ופרטי החיפוש ל־over.org.il ואת פרטי הנכס והעסקאות שנבחרו לחשבון Claude CLI, ולשמור את התוצאה בהיסטוריית הצוות.</label>
+   <label className='checkbox privacy-notice'><input type='checkbox' checked={consent} onChange={e=>setConsent(e.target.checked)} required/>אני מאשר/ת לשלוח את הכתובת או הגוש והחלקה ופרטי החיפוש ל־over.org.il ואת פרטי הנכס והעסקאות שנבחרו לחשבון Claude CLI, ולשמור את התוצאה בהיסטוריית הצוות.</label>
    <button disabled={run.busy||!!run.identity}>{run.busy?'אוסף עסקאות ומכין ניתוח…':'איסוף עסקאות והערכת שווי עם Claude'}</button>
   </fieldset></form>
   {run.busy&&<p role='status'>מאמתים חשבון, מאתרים חלקה ועסקאות ובוחרים עד עשר השוואות. האיסוף עשוי לארוך כדקה; אין צורך ללחוץ שוב.</p>}

@@ -1,5 +1,37 @@
 # Automatic comparable sales — 14 October 2026
 
+## 27 October: direct block/parcel search and default consent
+
+The automatic transactions form now offers **כתובת** or **גוש וחלקה**. Parcel
+mode requires positive block and parcel numbers, with optional **תת־גוש** for
+source ambiguity (not apartment/sub-parcel). Switching modes preserves the form
+values but submits only the active identifier. Consent is checked by default at
+the owner's explicit request; unchecking it still blocks submission.
+
+Verified the source's [public API documentation](https://www.over.org.il/api) and
+live `GET /api/nadlan/parcel/6685/154?deals=false&stat_area=false`. It returns the
+parcel identity, municipality and center directly. No address is required for
+the source query or the app database, which stores the canonical label
+`גוש 6685, חלקה 154` as the request's location. GovMap reverse lookup is therefore
+unnecessary. This parcel contains multiple addresses; none is chosen as the
+subject building. Nearby collection uses the parcel center and discloses that
+in the frozen task/report warnings. AI receives the source-resolved municipality.
+
+Only records matching the requested block, parcel, optional suffix and full
+parcel key are accepted. Missing/invalid coordinates, no match and unresolved
+multiple sub-blocks stop before AI; no first-result fallback. Historic address
+requests remain compatible. No database migration or worker change is needed.
+
+Validation: 18 source/selection tests, ten CLI contract tests and three isolated
+browser tests passed; TypeScript, production build and ESLint passed (existing
+bundle-size warning remains). Browser checks cover default consent, opt-out,
+mode switching, canonical request payloads, missing/zero IDs and optional suffix.
+Read-only live collection for 6685/154 with test ranking inputs (80 m², 3 rooms,
+apartment, 500 m; not asserted property facts) found 30 eligible records and
+selected ten without geocoding or invoking AI.
+
+Release acceptance is recorded after deployment below.
+
 The reference app at https://nadlan-il-one.vercel.app/methodology identifies over.org.il as its transaction archive. The linked Claude artifact is a demonstration, not a database. Public schema: https://www.over.org.il/openapi.json.
 
 The new default transaction form resolves city/street/house to a parcel, obtains nearby parcel locations, and queries the public `/api/deals/search` REST endpoint. No source link, GovMap domain token, MCP, SQL credential or AI search is required. Source availability and coverage remain external dependencies.

@@ -2,6 +2,8 @@
 
 Last consolidated: **15 October 2026**, after commit `fe3a5da`.
 
+**27 October parcel search:** Automatic nearby transactions now supports address or direct גוש וחלקה, using the source's parcel endpoint and center without a GovMap/address dependency. Consent defaults to checked per the owner's explicit request; opting out still blocks submission. See [the current transactions update](OVER_COMPARABLES.md).
+
 **27 October plot/transactions follow-up:** API plot now shares CLI autocomplete and reveals the map canvas before long parcel details. The transactions lookup for דוד מרכוס 20 יהוד-מונוסון exposed a verified address-register/parcel-name mismatch, corrected without relaxing true ambiguity checks. See [findings, tests and release acceptance](PLOT_AUTOCOMPLETE_ADDRESS_FIX.md).
 
 **27 October update:** Environment CLI submissions with GovMap evidence exposed an old plot-only database constraint. The narrowly scoped migration is now deployed; see [the incident and verification record](CLI_ENVIRONMENT_EVIDENCE_FIX.md). The original request was rejected before native execution. This supersedes the earlier assumption that the environment evidence path required no schema change.

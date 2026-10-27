@@ -9,7 +9,7 @@ const str = (v: unknown) => typeof v === 'string' ? v.trim() : '';
 const num = (v: unknown): number | null => (typeof v === 'number' || typeof v === 'string' && v.trim() !== '') && Number.isFinite(Number(v)) ? Number(v) : null;
 const norm = (v: unknown) => String(v ?? '').normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '');
 const streetWords = (v: unknown) => String(v ?? '').normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/).sort().join(' ');
-export type OverSubject = { city: string; street: string; house: string; address: string; area: number; rooms: number; propertyType: string; yearBuilt: number | null; floor: string; description: string; startDate: string; endDate: string; radiusMeters: number };
+export type OverSubject = { lookupMode?: 'address' | 'parcel'; gush?: string; parcel?: string; gushSuffix?: string; city: string; street: string; house: string; address: string; area: number; rooms: number; propertyType: string; yearBuilt: number | null; floor: string; description: string; startDate: string; endDate: string; radiusMeters: number };
 type Point = { lat: number; lon: number };
 export type OverSale = Transaction & { yearBuilt: number | null; sameParcel: boolean; neighbourhood: string | null; point: Point; rightsFraction: number; declaredAmount: number; parcelKey: string };
 export type OverContext = { kind: 'over'; version: 1 | 2; subject: OverSubject; query: TransactionResult['query']; selected: OverSale[]; retrievedAt: string; candidateCount: number; warnings: string[]; point: Point; parcelKey: string };
@@ -22,17 +22,26 @@ Return ONLY JSON: {"assessments":[{"id":"source-id","accepted":true,"similarity"
 
 export function overSubject(value: unknown, now = new Date()): OverSubject {
   const v = obj(value);
-  for (const [k, max] of [['city', 100], ['street', 120], ['house', 10]] as const) check(str(v[k]) && str(v[k]).length <= max, 'יש להזין יישוב, רחוב ומספר בית.');
-  check(/^\d{1,5}[\p{L}]?$/u.test(str(v.house)), 'מספר בית אינו תקין.');
+  check(v.lookupMode == null || v.lookupMode === 'address' || v.lookupMode === 'parcel', 'אופן חיפוש אינו תקין.');
+  const parcelMode = v.lookupMode === 'parcel';
+  let identifiers: Pick<OverSubject, 'lookupMode' | 'gush' | 'parcel' | 'gushSuffix'> = {};
+  if (parcelMode) {
+    for (const k of ['gush', 'parcel'] as const) check(/^\d{1,7}$/.test(str(v[k])) && Number(v[k]) > 0, 'יש להזין מספרי גוש וחלקה חיוביים, עד 7 ספרות.');
+    check(v.gushSuffix == null || v.gushSuffix === '' || /^\d{1,7}$/.test(str(v.gushSuffix)), 'תת־גוש אינו תקין.');
+    identifiers = { lookupMode: 'parcel', gush: String(Number(v.gush)), parcel: String(Number(v.parcel)), ...(str(v.gushSuffix) ? { gushSuffix: String(Number(v.gushSuffix)) } : {}) };
+  } else {
+    for (const [k, max] of [['city', 100], ['street', 120], ['house', 10]] as const) check(str(v[k]) && str(v[k]).length <= max, 'יש להזין יישוב, רחוב ומספר בית.');
+    check(/^\d{1,5}[\p{L}]?$/u.test(str(v.house)), 'מספר בית אינו תקין.');
+  }
   check(typeof v.area === 'number' && v.area >= 10 && v.area <= 2000, 'נדרש שטח רשום בין 10 ל־2,000 מ״ר להשוואה ולהערכת שווי.');
   check(typeof v.rooms === 'number' && v.rooms >= 1 && v.rooms <= 20, 'נדרש מספר חדרים בין 1 ל־20.');
   check(OVER_TYPES.includes(v.propertyType as typeof OVER_TYPES[number]), 'יש לבחור סוג נכס.');
   check(v.yearBuilt == null || typeof v.yearBuilt === 'number' && Number.isInteger(v.yearBuilt) && v.yearBuilt >= 1800 && v.yearBuilt <= now.getUTCFullYear() + 10, 'שנת בנייה אינה תקינה.');
   check(v.floor == null || typeof v.floor === 'string' && v.floor.length <= 80, 'קומה אינה תקינה.');
-  const address = `${str(v.street)} ${str(v.house)}, ${str(v.city)}`;
+  const address = parcelMode ? `גוש ${identifiers.gush}, חלקה ${identifiers.parcel}${identifiers.gushSuffix == null ? '' : `, תת־גוש ${identifiers.gushSuffix}`}` : `${str(v.street)} ${str(v.house)}, ${str(v.city)}`;
   const q = resolveQuery({ ...v, address, limit: 10, dealType: 'both' }, {}, now);
   check(q.radiusMeters >= 50 && q.radiusMeters <= 1000, 'רדיוס ההשוואה מוגבל ל־50–1,000 מטרים.');
-  return { city: str(v.city), street: str(v.street), house: str(v.house), address, area: v.area as number, rooms: v.rooms as number, propertyType: str(v.propertyType), yearBuilt: num(v.yearBuilt), floor: str(v.floor), description: q.description, startDate: q.startDate, endDate: q.endDate, radiusMeters: q.radiusMeters };
+  return { ...identifiers, city: parcelMode ? '' : str(v.city), street: parcelMode ? '' : str(v.street), house: parcelMode ? '' : str(v.house), address, area: v.area as number, rooms: v.rooms as number, propertyType: str(v.propertyType), yearBuilt: num(v.yearBuilt), floor: str(v.floor), description: q.description, startDate: q.startDate, endDate: q.endDate, radiusMeters: q.radiusMeters };
 }
 function point(value: unknown): Point | null {
   const p = obj(value), lat = num(p.lat), lon = num(p.lon);
@@ -102,7 +111,10 @@ export async function collectOverTransactions(value: unknown, deps: { fetcher?: 
     if (!Array.isArray(result.data)) throw new Problem(502, 'מבנה תשובת מאגר העסקאות השתנה.');
     return result;
   };
-  const lookup = await get('/api/nadlan/address', { city: subject.city, street: subject.street, number: subject.house, deals: false, stat_area: false });
+  const parcelMode = subject.lookupMode === 'parcel';
+  const lookup = parcelMode
+    ? await get(`/api/nadlan/parcel/${subject.gush}/${subject.parcel}`, { deals: false, stat_area: false, ...(subject.gushSuffix == null ? {} : { suffix: subject.gushSuffix }) })
+    : await get('/api/nadlan/address', { city: subject.city, street: subject.street, number: subject.house, deals: false, stat_area: false });
   // The address register uses current locality names while parcel identities can
   // retain historic names (e.g. Yehud). Join the source's explicit parcel key and
   // locality code; never accept the first fuzzy result or guess a city alias.
@@ -117,20 +129,29 @@ export async function collectOverTransactions(value: unknown, deps: { fetcher?: 
   };
   const matches = (lookup.data as unknown[]).filter(v => {
     const i = obj(obj(v).identity);
+    if (parcelMode) {
+      const suffix = num(i.gush_suffix);
+      return num(i.gush) === Number(subject.gush) && num(i.helka) === Number(subject.parcel) &&
+        suffix !== null && Number.isInteger(suffix) && suffix >= 0 &&
+        (subject.gushSuffix == null || suffix === Number(subject.gushSuffix)) &&
+        obj(v).parcel_key === `${subject.gush}-${suffix}-${subject.parcel}`;
+    }
     return linked(v).length > 0 || norm(obj(i.settlement).name) === norm(subject.city) && Array.isArray(i.addresses) && i.addresses.some(a => { const r = obj(a); return norm(r.street) === norm(subject.street) && norm(`${r.house ?? ''}${r.suffix ?? ''}`) === norm(subject.house); });
   });
-  check(matches.length > 0, 'לא נמצאה התאמה מאומתת לכתובת. בדקו יישוב, רחוב ומספר בית; לא בוצע ניחוש מיקום.');
-  check(matches.length === 1, 'נמצאו כמה חלקות לכתובת ולא חלקה יחידה. יש לדייק את הכתובת; לא נבחרה אוטומטית החלקה הראשונה.');
+  check(matches.length > 0, parcelMode ? 'לא נמצאה חלקה התואמת לגוש ולחלקה שהוזנו במאגר. בדקו את המספרים.' : 'לא נמצאה התאמה מאומתת לכתובת. בדקו יישוב, רחוב ומספר בית; לא בוצע ניחוש מיקום.');
+  check(matches.length === 1, parcelMode ? 'נמצאו כמה תתי־גוש לצמד הגוש והחלקה. ציינו תת־גוש כדי לזהות חלקה יחידה; לא נבחרה התוצאה הראשונה.' : 'נמצאו כמה חלקות לכתובת ולא חלקה יחידה. יש לדייק את הכתובת; לא נבחרה אוטומטית החלקה הראשונה.');
   const target = parcel(matches[0]); if (!target) throw new Problem(400, 'המאגר אינו מספק מיקום תקין לנכס.');
-  const addresses = obj(obj(matches[0]).identity).addresses as unknown[];
+  check(!!target.city, 'המאגר אינו מספק יישוב לחלקה; לא ניתן להשלים את איסוף העסקאות.');
+  const addresses = Array.isArray(obj(obj(matches[0]).identity).addresses) ? obj(obj(matches[0]).identity).addresses as unknown[] : [];
   const matchedAddress = addresses.map(obj).find(a => norm(a.street) === norm(subject.street) && norm(`${a.house ?? ''}${a.suffix ?? ''}`) === norm(subject.house));
   const verifiedAddresses = linked(matches[0]);
-  const origin = (verifiedAddresses.length === 1 ? point(verifiedAddresses[0]) : null) ?? point(matchedAddress) ?? target.point;
+  const origin = parcelMode ? target.point : (verifiedAddresses.length === 1 ? point(verifiedAddresses[0]) : null) ?? point(matchedAddress) ?? target.point;
   const sourceSubject = { ...subject, city: target.city };
   const nearby = await get('/api/nadlan/point', { ...origin, radius_m: subject.radiusMeters, limit: 200, deals: false, stat_area: false });
   const parcels = [matches[0], ...(nearby.data as unknown[])];
   const allGush = [...new Set(parcels.map(parcel).filter((p): p is Parcel => !!p && norm(p.city) === norm(sourceSubject.city) && distanceMeters(origin, p.point) <= subject.radiusMeters).map(p => p.gp.split('-')[0]))];
   const warnings = ['מקור: עסקאות רשות המסים בארכיון over.org.il; הדיווחים עשויים להתעדכן באיחור.', 'מרחקים בקירוב למרכז החלקה; אותה חלקה אינה בהכרח אותו בניין. אין אימות זכויות או התאמת מחירים למדד.', 'נבחרות עסקאות מגורים במלוא הזכויות, במיקום ובתקופה המבוקשים. שנת בנייה, שטח, חדרים וסוג נכס משמשים לדירוג ולהתאמות ולא לפסילה. התאמות מחיר הן הנחות לבדיקה; סבסוד אינו מזוהה באופן מלא.'];
+  if (parcelMode) warnings.push(`החיפוש בוצע לפי ${subject.address}, ביישוב ${target.city}, סביב מרכז החלקה. לא נבחרה כתובת או דירה מסוימת מתוך החלקה.`);
   if ((nearby.data as unknown[]).length >= 200) warnings.push('מאגר המיקום הוגבל ל־200 חלקות: התוצאות הן הדומות ביותר במדגם שנאסף, ולא בהכרח בכלל האזור.');
   if (allGush.length > 6) warnings.push('האיסוף הוגבל לשישה גושים; כיסוי האזור חלקי.');
   const raw: unknown[] = [];
@@ -144,7 +165,7 @@ export async function collectOverTransactions(value: unknown, deps: { fetcher?: 
   }
   const ranked = selectOverSales(raw, parcels, sourceSubject, origin, target.key);
   if (ranked.length < 10) warnings.push(`נמצאו רק ${ranked.length} עסקאות מגורים תקינות במדגם שנאסף לתקופה ולרדיוס המבוקשים.`);
-  return { kind: 'over', version: 2, subject, query: resolveQuery({ ...subject, limit: 10, dealType: 'both' }, {}, now), selected: ranked.slice(0, 10), retrievedAt: now.toISOString(), candidateCount: ranked.length, warnings, point: origin, parcelKey: target.key };
+  return { kind: 'over', version: 2, subject: parcelMode ? sourceSubject : subject, query: resolveQuery({ ...subject, limit: 10, dealType: 'both' }, {}, now), selected: ranked.slice(0, 10), retrievedAt: now.toISOString(), candidateCount: ranked.length, warnings, point: origin, parcelKey: target.key };
 }
 export function overPromptInput(context: OverContext) {
   const prices = context.selected.map(r => r.amount! / r.area!).sort((a, b) => a - b);

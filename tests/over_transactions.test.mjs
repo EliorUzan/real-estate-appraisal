@@ -92,6 +92,42 @@ test('ambiguous lookup and source failures stop before any model request',async(
 const yehudInput={...input,city:'יהוד-מונוסון',street:'דוד מרכוס',house:'20'};
 const yehudParcel={parcel_key:'6685-0-154',identity:{gush:6685,helka:154,point:{lat:32.03497115636164,lon:34.889106348102736},settlement:{code:9400,name:'יהוד'},addresses:[{street:'מרכוס דוד',house:20,suffix:null,lat:32.03492046965214,lon:34.88921261256602}]}};
 const yehudAddress={settlement_code:9400,settlement_name:'יהוד-מונוסון',street_name:'מרכוס דוד',house_num:20,house_suffix:null,parcel_key:'6685-0-154',parcel_match:'pip',lat:32.03492046965214,lon:34.88921261256602};
+const parcelInput={lookupMode:'parcel',gush:'6685',parcel:'154',area:80,rooms:3,propertyType:input.propertyType,radiusMeters:500};
+const parcelRecord={...yehudParcel,identity:{...yehudParcel.identity,gush_suffix:0}};
+test('parcel input is canonical and requires no address; invalid IDs and lookup modes are rejected',()=>{
+ const s=overSubject({...parcelInput,gush:'006685',parcel:'000154',city:'untrusted old city',street:'old street',house:'2'},now);
+ assert.equal(s.address,'גוש 6685, חלקה 154');assert.equal(s.city,'');assert.equal(s.street,'');assert.equal(s.house,'');
+ assert.equal(overSubject({...parcelInput,gushSuffix:'0'},now).address,'גוש 6685, חלקה 154, תת־גוש 0');
+ for(const patch of [{gush:''},{gush:'0'},{gush:'-1'},{parcel:'1e3'},{parcel:'1/2'},{gush:'12345678'},{gushSuffix:'-1'},{gushSuffix:0},{lookupMode:'unknown'}])assert.throws(()=>overSubject({...parcelInput,...patch},now));
+});
+test('parcel collector uses exact parcel center without geocoding or requiring a street address',async()=>{
+ const urls=[];
+ const noAddress={...parcelRecord,identity:{...parcelRecord.identity,addresses:[]}};
+ const result=await collectOverTransactions(parcelInput,{now,fetcher:async url=>{
+  urls.push(new URL(url));
+  if(url.includes('/nadlan/parcel/'))return response({data:[noAddress]});
+  if(url.includes('/point?'))return response({data:[noAddress]});
+  return response({data:[sale(1,{gush:'6685',helka:'154',settlement:'יהוד',settlement_code:'9400'})]});
+ }});
+ assert.equal(urls[0].pathname,'/api/nadlan/parcel/6685/154');assert.equal(urls[0].searchParams.has('suffix'),false);
+ assert.ok(urls.every(u=>!u.pathname.includes('/address')&&u.origin==='https://www.over.org.il'));
+ assert.deepEqual(result.point,parcelRecord.identity.point);assert.equal(result.subject.city,'יהוד');
+ assert.equal(result.subject.address,'גוש 6685, חלקה 154');assert.equal(result.query.address,result.subject.address);
+ assert.equal(result.parcelKey,'6685-0-154');assert.equal(result.selected.length,1);
+ assert.ok(result.warnings.some(w=>w.includes('לא נבחרה כתובת')));
+});
+test('parcel lookup rejects absent, mismatched, ambiguous and unusable source locations before sales collection',async()=>{
+ const otherSuffix={...parcelRecord,parcel_key:'6685-1-154',identity:{...parcelRecord.identity,gush_suffix:1}};
+ for(const rows of [[],[yehudParcel],[{...parcelRecord,parcel_key:'6685-0-155'}],[{...parcelRecord,identity:{...parcelRecord.identity,helka:155}}],[parcelRecord,otherSuffix],[{...parcelRecord,identity:{...parcelRecord.identity,point:null}}]]){
+  let calls=0;await assert.rejects(collectOverTransactions(parcelInput,{now,fetcher:async()=>{calls++;return response({data:rows});}}));assert.equal(calls,1);
+ }
+ let first;
+ const r=await collectOverTransactions({...parcelInput,gushSuffix:'1'},{now,fetcher:async url=>{
+  if(!first)first=new URL(url);
+  return response({data:url.includes('/nadlan/parcel/')?[parcelRecord,otherSuffix]:[]});
+ }});
+ assert.equal(first.searchParams.get('suffix'),'1');assert.equal(r.parcelKey,'6685-1-154');
+});
 test('verified address-register join resolves Yehud and reversed street names through sale collection',async()=>{
  const urls=[];
  const result=await collectOverTransactions(yehudInput,{now,fetcher:async url=>{
