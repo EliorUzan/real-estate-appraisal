@@ -14,7 +14,7 @@ The existing plot collector supplies the cadastral match, available planning/roa
 
 The environment payload excludes raw SDK transport diagnostics and copied geometries. The backend labels it browser-collected, not independently server-verified. Missing neighborhood names, building attributes, or elevation remain missing. This is source-data access via the application; **it is not an autonomous GovMap MCP tool** and it does not bypass GovMap's domain restrictions.
 
-Existing clients without environment evidence remain compatible. Plot and comparable-sales flows and Claude model selection are preserved. No database migration or native runtime change is needed for this data path.
+Existing clients without environment evidence remain compatible. Plot and comparable-sales flows and Claude model selection are preserved. No native runtime change is needed for this data path. **Correction, 27 October:** the older plot-only database constraint did require a migration for environment evidence; the missing migration caused admission failures. It is now deployed and verified through a live Haiku request. See [the incident record](CLI_ENVIRONMENT_EVIDENCE_FIX.md).
 
 ## Google Maps: Claude activated on 2026-10-15
 

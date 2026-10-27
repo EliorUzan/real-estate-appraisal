@@ -2,6 +2,8 @@
 
 Last consolidated: **15 October 2026**, after commit `fe3a5da`.
 
+**27 October update:** Environment CLI submissions with GovMap evidence exposed an old plot-only database constraint. The narrowly scoped migration is now deployed; see [the incident and verification record](CLI_ENVIRONMENT_EVIDENCE_FIX.md). The original request was rejected before native execution. This supersedes the earlier assumption that the environment evidence path required no schema change.
+
 Purpose: give another engineering agent enough context to maintain, reproduce, and extend the personal Antigravity/Claude integration without repeating its implementation and diagnostic mistakes. This is a guide to the existing application, not a claim that every planned feature is deployed or that the experiment is approved for general customer hosting.
 
 This document records the last verified checkpoint. It does **not** make a fresh assertion about an asleep Codespace, account allowance, deployed frontend revision, or current provider terms. Recheck those before acting. No credentials, authorization codes, or complete private configuration files belong in this document.
