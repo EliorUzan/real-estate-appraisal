@@ -30,7 +30,14 @@ Read-only live collection for 6685/154 with test ranking inputs (80 m², 3 rooms
 apartment, 500 m; not asserted property facts) found 30 eligible records and
 selected ten without geocoding or invoking AI.
 
-Release acceptance is recorded after deployment below.
+Release: commit `11808e3c6cdb351d78c9fcca0c7b4934f8eca1b4`, Supabase appraisal
+v32 (ACTIVE, JWT verification retained), Vercel production
+`dpl_4x8xVeWTcqnXCHngwShZSzMENdC2` (READY). Deployed function source was read back:
+only `over-transactions.ts` changed, matching the tested local file.
+Refreshed the signed-in production app, switched **חיפוש לפי** to **גוש וחלקה**,
+and visually confirmed the block/parcel/optional suffix fields, center-based
+explanation, and checked consent checkbox. No new AI request was submitted;
+the existing completed request remained unchanged.
 
 The reference app at https://nadlan-il-one.vercel.app/methodology identifies over.org.il as its transaction archive. The linked Claude artifact is a demonstration, not a database. Public schema: https://www.over.org.il/openapi.json.
 
