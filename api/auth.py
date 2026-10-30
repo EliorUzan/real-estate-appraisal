@@ -32,7 +32,7 @@ def require_user(
     if not authorization or not authorization.startswith("Bearer "):
         raise ApiError(401, "UNAUTHENTICATED", "נדרש להתחבר למערכת.")
     token = authorization.removeprefix("Bearer ").strip()
-    if not token:
+    if not token or len(token) > 16_384:
         raise ApiError(401, "UNAUTHENTICATED", "נדרש להתחבר למערכת.")
     try:
         signing_key = jwks_client(settings.supabase_jwks_url).get_signing_key_from_jwt(token)
@@ -45,5 +45,5 @@ def require_user(
             options={"require": ["sub", "exp", "aud", "iss"]},
         )
         return AuthenticatedUser(id=UUID(claims["sub"]), email=claims.get("email"))
-    except (jwt.PyJWTError, ValueError):
+    except (jwt.PyJWTError, ValueError, RecursionError):
         raise ApiError(401, "INVALID_SESSION", "תוקף ההתחברות פג. יש להתחבר מחדש.") from None

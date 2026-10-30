@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import re
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +34,29 @@ class FileTextExtractor:
         return self._read_text(path)
 
     def _read_text(self, path: Path) -> str:
+        if not path.is_file() or path.stat().st_size > 20 * 1024 * 1024:
+            raise ValueError("גודל הקובץ המרבי הוא 20MB")
+        if path.suffix.lower() in {".docx", ".xlsx"}:
+            with zipfile.ZipFile(path) as archive:
+                entries = archive.infolist()
+                if len(entries) > 10000 or sum(entry.file_size for entry in entries) > 100 * 1024 * 1024:
+                    raise ValueError("תוכן הקובץ לאחר פריסה גדול מדי")
+        text = self._read_supported_text(path)
+        if len(text) > 2_000_000:
+            raise ValueError("כמות הטקסט בקובץ גדולה מדי")
+        return text
+
+    @staticmethod
+    def _bounded_join(values) -> str:
+        parts, length = [], 0
+        for value in values:
+            length += len(value) + 1
+            if length > 2_000_000:
+                raise ValueError("כמות הטקסט בקובץ גדולה מדי")
+            parts.append(value)
+        return "\n".join(parts)
+
+    def _read_supported_text(self, path: Path) -> str:
         suffix = path.suffix.lower()
         if suffix in {".txt", ".md"}:
             return self._read_plain_text(path)
@@ -41,22 +65,31 @@ class FileTextExtractor:
         if suffix == ".pdf":
             from pypdf import PdfReader
 
-            return "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
+            reader = PdfReader(path)
+            if len(reader.pages) > 2000:
+                raise ValueError("מספר העמודים בקובץ גדול מדי")
+            return self._bounded_join(page.extract_text() or "" for page in reader.pages)
         if suffix == ".docx":
             from docx import Document
 
             document = Document(path)
-            return "\n".join(paragraph.text for paragraph in document.paragraphs)
+            return self._bounded_join(paragraph.text for paragraph in document.paragraphs)
         if suffix == ".xlsx":
             from openpyxl import load_workbook
 
             workbook = load_workbook(path, read_only=True, data_only=True)
-            return "\n".join(str(value) for sheet in workbook.worksheets for row in sheet.iter_rows(values_only=True) for value in row if value is not None)
+            try:
+                return self._bounded_join(str(value) for sheet in workbook.worksheets for row in sheet.iter_rows(values_only=True) for value in row if value is not None)
+            finally:
+                workbook.close()
         if suffix == ".xls":
             import xlrd
 
             workbook = xlrd.open_workbook(path)
-            return "\n".join(str(sheet.cell_value(row, column)) for sheet in workbook.sheets() for row in range(sheet.nrows) for column in range(sheet.ncols))
+            try:
+                return self._bounded_join(str(sheet.cell_value(row, column)) for sheet in workbook.sheets() for row in range(sheet.nrows) for column in range(sheet.ncols))
+            finally:
+                workbook.release_resources()
         if suffix == ".doc":
             return self._read_legacy_doc(path)
         raise ValueError("סוג קובץ אינו נתמך")
