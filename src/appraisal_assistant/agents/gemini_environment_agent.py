@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+from appraisal_assistant.services.required_attachment import read_required_bytes
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -68,8 +69,9 @@ class GeminiEnvironmentDescriptionAgent:
         warnings: list[str] = []
         for attachment in (*request.example_attachments, *request.additional_request_attachments):
             part, warning = self._file_part(attachment)
-            if part:
-                content.append(part)
+            if not part:
+                raise ValueError(warning or "לא ניתן לעבד קובץ נדרש")
+            content.append(part)
             if warning:
                 warnings.append(warning)
         return content, warnings
@@ -80,7 +82,7 @@ class GeminiEnvironmentDescriptionAgent:
             size = attachment.path.stat().st_size
             if size > MAX_ATTACHMENT_BYTES:
                 return None, f"הקובץ {attachment.name} לא נשלח: גודלו עולה על 20MB."
-            encoded = base64.b64encode(attachment.path.read_bytes()).decode("ascii")
+            encoded = base64.b64encode(read_required_bytes(attachment.path)).decode("ascii")
         except OSError:
             return None, f"הקובץ {attachment.name} לא נשלח: לא ניתן לקרוא אותו מהמחשב."
         mime_type = mimetypes.guess_type(attachment.name)[0] or "application/octet-stream"

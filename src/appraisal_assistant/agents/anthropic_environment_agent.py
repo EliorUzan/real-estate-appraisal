@@ -8,6 +8,7 @@ from appraisal_assistant.agents.prompts.environment_description import SYSTEM_IN
 from appraisal_assistant.domain.models import AgentResult, Attachment, SectionRequest
 from appraisal_assistant.infrastructure.anthropic_settings import AnthropicSettings
 from appraisal_assistant.services.file_text_extractor import FileTextExtractor
+from appraisal_assistant.services.required_attachment import require_readable_text, read_required_bytes
 
 
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
@@ -78,12 +79,12 @@ class AnthropicEnvironmentDescriptionAgent:
             return None, f"הקובץ {attachment.name} לא נשלח: לא ניתן לקרוא אותו מהמחשב."
         if attachment.suffix == ".pdf":
             try:
-                encoded = base64.b64encode(attachment.path.read_bytes()).decode("ascii")
+                encoded = base64.b64encode(read_required_bytes(attachment.path)).decode("ascii")
             except OSError:
                 return None, f"הקובץ {attachment.name} לא נשלח: לא ניתן לקרוא אותו מהמחשב."
             return {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": encoded}, "title": attachment.name}, None
         try:
-            extracted_text = FileTextExtractor().extract_text(attachment.path)
+            extracted_text = require_readable_text(FileTextExtractor().extract_text(attachment.path), attachment.name)
         except Exception as error:
             raise ValueError(f"לא ניתן להשלים יצירה: הקובץ {attachment.name} לא עובד. יש לפצל או להמיר אותו ולנסות שוב.") from error
         return {"type": "text", "text": f"\n\nתוכן הקובץ {attachment.name}:\n{extracted_text}"}, None

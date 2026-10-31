@@ -259,11 +259,14 @@ class MainWindow(QMainWindow):
             example_attachments=tuple(self._example_attachments),
             additional_request_attachments=tuple(self._additional_request_attachments),
         )
+        self.output.clear()
+        self.copy_output_button.setEnabled(False)
+        self.warnings.setVisible(False)
         self.generate_button.setEnabled(False)
         self.statusBar().showMessage("יוצר תוצאה…")
         try:
             result = self._router.run(request)
-        except (SectionNotAvailableError, RuntimeError) as error:
+        except (SectionNotAvailableError, RuntimeError, ValueError) as error:
             QMessageBox.warning(self, "לא ניתן ליצור", str(error))
             self.statusBar().showMessage("הפעולה לא הושלמה")
         else:

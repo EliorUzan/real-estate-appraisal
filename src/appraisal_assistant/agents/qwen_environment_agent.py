@@ -7,6 +7,7 @@ from appraisal_assistant.agents.prompts.environment_description import SYSTEM_IN
 from appraisal_assistant.domain.models import AgentResult, Attachment, SectionRequest
 from appraisal_assistant.infrastructure.qwen_settings import QwenSettings
 from appraisal_assistant.services.file_text_extractor import FileTextExtractor
+from appraisal_assistant.services.required_attachment import require_readable_text
 
 
 class QwenConfigurationError(RuntimeError):
@@ -60,7 +61,7 @@ class QwenEnvironmentDescriptionAgent:
         extractor = FileTextExtractor()
         for attachment in (*request.example_attachments, *request.additional_request_attachments):
             try:
-                text = extractor.extract_text(attachment.path)
+                text = require_readable_text(extractor.extract_text(attachment.path), attachment.name)
             except Exception as error:
                 raise ValueError(f"לא ניתן להשלים יצירה: הקובץ {attachment.name} לא עובד. יש לפצל או להמיר אותו ולנסות שוב.") from error
             else:
