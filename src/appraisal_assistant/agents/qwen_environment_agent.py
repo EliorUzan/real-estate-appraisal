@@ -62,7 +62,7 @@ class QwenEnvironmentDescriptionAgent:
             try:
                 text = extractor.extract_text(attachment.path)
             except Exception as error:
-                warnings.append(f"הקובץ {attachment.name} לא נשלח ל-Qwen: לא ניתן להמיר אותו לטקסט ({error}).")
+                raise ValueError(f"לא ניתן להשלים יצירה: הקובץ {attachment.name} לא עובד. יש לפצל או להמיר אותו ולנסות שוב.") from error
             else:
                 message += f"\n\nתוכן הקובץ {attachment.name}:\n{text}"
         return message, warnings

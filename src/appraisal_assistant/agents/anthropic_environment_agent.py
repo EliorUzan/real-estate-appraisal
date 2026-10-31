@@ -61,8 +61,9 @@ class AnthropicEnvironmentDescriptionAgent:
         warnings: list[str] = []
         for attachment in (*request.example_attachments, *request.additional_request_attachments):
             part, warning = self._file_part(attachment)
-            if part:
-                content.append(part)
+            if not part:
+                raise ValueError(warning or "לא ניתן לעבד קובץ נדרש")
+            content.append(part)
             if warning:
                 warnings.append(warning)
         return content, warnings
@@ -84,7 +85,7 @@ class AnthropicEnvironmentDescriptionAgent:
         try:
             extracted_text = FileTextExtractor().extract_text(attachment.path)
         except Exception as error:
-            return None, f"הקובץ {attachment.name} לא נשלח ל-Claude: לא ניתן להמיר אותו לטקסט ({error})."
+            raise ValueError(f"לא ניתן להשלים יצירה: הקובץ {attachment.name} לא עובד. יש לפצל או להמיר אותו ולנסות שוב.") from error
         return {"type": "text", "text": f"\n\nתוכן הקובץ {attachment.name}:\n{extracted_text}"}, None
 
     @staticmethod

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import csv
+import json
+import subprocess
+import sys
 import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+
+
+class ExtractionLimitError(ValueError):
+    """Safe user-facing explanation for our explicit extraction limits."""
 
 
 @dataclass(frozen=True)
@@ -34,16 +41,35 @@ class FileTextExtractor:
         return self._read_text(path)
 
     def _read_text(self, path: Path) -> str:
+        """Run untrusted parsers outside the UI/provider process with a hard deadline."""
+        path = path.resolve()
+        worker = Path(__file__).with_name("extraction_worker.py")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-I", str(worker), str(path)],
+                capture_output=True, timeout=20,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("עיבוד הקובץ חרג ממגבלת הזמן. יש לפצל או להמיר אותו.") from error
+        if result.returncode or len(result.stdout) > 12_000_000:
+            raise ValueError("לא ניתן לעבד את הקובץ במסגרת מגבלות הבטיחות")
+        payload = json.loads(result.stdout)
+        if "error" in payload:
+            raise ValueError(payload["error"])
+        return payload["text"]
+
+    def _read_text_in_worker(self, path: Path) -> str:
         if not path.is_file() or path.stat().st_size > 20 * 1024 * 1024:
-            raise ValueError("גודל הקובץ המרבי הוא 20MB")
+            raise ExtractionLimitError("גודל הקובץ המרבי הוא 20MB")
         if path.suffix.lower() in {".docx", ".xlsx"}:
             with zipfile.ZipFile(path) as archive:
                 entries = archive.infolist()
                 if len(entries) > 10000 or sum(entry.file_size for entry in entries) > 100 * 1024 * 1024:
-                    raise ValueError("תוכן הקובץ לאחר פריסה גדול מדי")
+                    raise ExtractionLimitError("תוכן הקובץ לאחר פריסה גדול מדי")
         text = self._read_supported_text(path)
         if len(text) > 2_000_000:
-            raise ValueError("כמות הטקסט בקובץ גדולה מדי")
+            raise ExtractionLimitError("כמות הטקסט בקובץ גדולה מדי")
         return text
 
     @staticmethod
@@ -52,7 +78,7 @@ class FileTextExtractor:
         for value in values:
             length += len(value) + 1
             if length > 2_000_000:
-                raise ValueError("כמות הטקסט בקובץ גדולה מדי")
+                raise ExtractionLimitError("כמות הטקסט בקובץ גדולה מדי")
             parts.append(value)
         return "\n".join(parts)
 
@@ -67,7 +93,7 @@ class FileTextExtractor:
 
             reader = PdfReader(path)
             if len(reader.pages) > 2000:
-                raise ValueError("מספר העמודים בקובץ גדול מדי")
+                raise ExtractionLimitError("מספר העמודים בקובץ גדול מדי")
             return self._bounded_join(page.extract_text() or "" for page in reader.pages)
         if suffix == ".docx":
             from docx import Document
@@ -79,6 +105,13 @@ class FileTextExtractor:
 
             workbook = load_workbook(path, read_only=True, data_only=True)
             try:
+                if len(workbook.worksheets) > 100:
+                    raise ExtractionLimitError("מספר הגיליונות גדול מדי")
+                visited = 0
+                for sheet in workbook.worksheets:
+                    visited += (sheet.max_row or 0) * (sheet.max_column or 0)
+                    if visited > 1_000_000:
+                        raise ExtractionLimitError("מספר התאים בקובץ גדול מדי; יש לצמצם את טווח הגיליון")
                 return self._bounded_join(str(value) for sheet in workbook.worksheets for row in sheet.iter_rows(values_only=True) for value in row if value is not None)
             finally:
                 workbook.close()
@@ -92,7 +125,7 @@ class FileTextExtractor:
                 workbook.release_resources()
         if suffix == ".doc":
             return self._read_legacy_doc(path)
-        raise ValueError("סוג קובץ אינו נתמך")
+        raise ExtractionLimitError("סוג קובץ אינו נתמך")
 
     @staticmethod
     def _read_plain_text(path: Path) -> str:
